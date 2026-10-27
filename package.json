@@ -1,0 +1,11 @@
+{
+  "name": "portfolio-david-mpongo",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Portfolio de Ir David Mpongo et DAVBOT Store (DAVBOT IA PRO, DAVBOT One)",
+  "scripts": {
+    "dev": "vercel dev",
+    "check": "node scripts/check.js"
+  },
+  "engines": { "node": ">=18" }
+}
