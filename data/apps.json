@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "slug": "davbot-ia-pro",
+    "name": "DAVBOT IA PRO",
+    "icon": "/img/davbot-ia-pro.webp",
+    "developer": "David Mpongo",
+    "category": "IA",
+    "version": "3.0",
+    "size": "1 MB",
+    "downloads": 30,
+    "stars": 5,
+    "premium": true,
+    "tags": ["Hors connexion", "Texte", "Images"],
+    "description": "Votre assistant IA nouvelle génération : rédigez, créez des images, analysez et automatisez vos tâches grâce à des outils avancés, dans une interface rapide et élégante. Fonctionne même hors connexion, pour rester productif partout, à tout moment.",
+    "downloadUrl": "https://github.com/davbotapp/Publications-apk-online-/releases/download/Davbotia/davbot-ai.apk"
+  },
+  {
+    "id": 2,
+    "slug": "davbot-one",
+    "name": "DAVBOT One",
+    "icon": "/img/davbot-one.webp",
+    "developer": "DAVBOT",
+    "category": "Outils",
+    "version": "1.0",
+    "size": "5 MB",
+    "downloads": 7000,
+    "stars": 5,
+    "premium": false,
+    "tags": ["Réseau social", "IA", "Outils"],
+    "description": "Plateforme tout-en-un et réseau social : discutez, publiez et partagez avec la communauté, et profitez d’outils d’IA, de développement, d’APK, de musique personnalisée, de sites web, de VPN et d’automatisation, dans une seule application simple, rapide et puissante.",
+    "downloadUrl": "https://github.com/davbotapp/Publications-apk-online-/releases/download/Davbotone/Davbot-one.1.apk"
+  }
+]
