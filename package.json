@@ -1,11 +1,13 @@
 {
   "name": "portfolio-david-mpongo",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
-  "description": "Portfolio de Ir David Mpongo et DAVBOT Store (DAVBOT IA PRO, DAVBOT One)",
+  "description": "Portfolio de Ir David Mpongo + DAVBOT Store (upload APK avec compte Davbot One)",
   "scripts": {
     "dev": "vercel dev",
-    "check": "node scripts/check.js"
+    "check": "node --check backend/firebase.js && node --check api/store.js && node --check public/js/app.js && node --check public/js/store.js && echo OK"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }
