@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07090f">
 <title>DAVBOT Store — Applications Android | DAVBOT IA PRO et DAVBOT One</title>
-<meta name="description" content="DAVBOT Store : téléchargez DAVBOT IA PRO et DAVBOT One, les applications Android créées par Ir David Mpongo. Téléchargement direct, sans inscription.">
+<meta name="description" content="DAVBOT Store : téléchargez DAVBOT IA PRO et DAVBOT One, les applications Android créées par Ir David Mpongo. Téléchargement direct, sans inscription. Publiez votre APK avec un compte Davbot One.">
 <link rel="canonical" href="https://portfolio-david-mpongo-chi.vercel.app/store-apk">
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/img/davbot-ia-pro.png">
@@ -34,6 +34,8 @@
     <a href="/">Portfolio</a>
     <a class="nav-store" href="/store-apk" aria-current="page"><i class="fa-solid fa-store"></i> Store</a>
   </nav>
+  <button id="authBtn" class="btn btn-ghost auth-btn" type="button"><i class="fa-solid fa-user"></i> <span id="authLabel">Connexion Davbot One</span></button>
+  <button id="logoutBtn" class="icon-btn" type="button" aria-label="Se déconnecter" hidden><i class="fa-solid fa-right-from-bracket"></i></button>
   <button id="themeToggle" class="icon-btn" type="button" aria-label="Changer de thème"><i class="fa-solid fa-sun"></i></button>
 </header>
 
@@ -41,7 +43,11 @@
   <section class="store-hero section">
     <div class="eyebrow"><span class="dot"></span> DAVBOT APK STORE</div>
     <h1>Applications <span>DAVBOT</span></h1>
-    <p class="hero-lead">Les applications Android créées par Ir David Mpongo : DAVBOT IA PRO et DAVBOT One. Téléchargement direct, sans inscription.</p>
+    <p class="hero-lead">Téléchargez les applications Android DAVBOT sans inscription. Un compte <strong>Davbot One</strong> permet aussi de publier votre propre APK.</p>
+    <div class="hero-actions">
+      <button id="publishBtn" class="btn btn-gold" type="button"><i class="fa-solid fa-cloud-arrow-up"></i> Publier mon APK</button>
+      <span class="hint"><i class="fa-solid fa-lock"></i> Publication réservée aux comptes Davbot One · téléchargement libre</span>
+    </div>
     <div class="store-tools">
       <div class="search">
         <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
@@ -59,6 +65,72 @@
     <noscript><p class="state">JavaScript est nécessaire pour afficher le catalogue.</p></noscript>
   </section>
 </main>
+
+
+<div id="pubModal" class="modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="pubTitle">
+  <div class="modal-card">
+    <button class="modal-close" id="pubClose" type="button" aria-label="Fermer">×</button>
+
+    <section id="stepLogin" hidden>
+      <div class="eyebrow"><span class="dot"></span> COMPTE DAVBOT ONE</div>
+      <h2 id="pubTitle">Connectez-vous pour publier</h2>
+      <p class="modal-lead">Utilisez le compte de l'application DAVBOT One. Pas de compte ? Installez DAVBOT One depuis ce store, puis créez-le en quelques secondes.</p>
+      <form id="loginForm" class="form" autocomplete="on">
+        <label>Numéro ou Gmail<input id="lgId" name="identity" type="text" autocomplete="username" required maxlength="254" placeholder="+243… ou nom@gmail.com"></label>
+        <label>Mot de passe<input id="lgPw" name="password" type="password" autocomplete="current-password" required maxlength="64"></label>
+        <p id="lgErr" class="form-error" role="alert"></p>
+        <button class="btn btn-gold" type="submit" id="lgBtn"><i class="fa-solid fa-right-to-bracket"></i> Se connecter</button>
+      </form>
+    </section>
+
+    <section id="stepForm" hidden>
+      <div class="eyebrow"><span class="dot"></span> NOUVELLE APPLICATION</div>
+      <h2>Publier mon APK</h2>
+      <p class="modal-lead">Connecté en tant que <strong id="whoName"></strong>. Votre APK est vérifié puis publié aussitôt.</p>
+      <form id="pubForm" class="form">
+        <div id="drop" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier APK">
+          <input id="apkFile" type="file" accept=".apk,application/vnd.android.package-archive" hidden>
+          <i class="fa-brands fa-android drop-ic" aria-hidden="true"></i>
+          <strong id="dropTitle">Déposez votre APK ici</strong>
+          <span id="dropSub">ou touchez pour parcourir · 150 Mo maximum</span>
+        </div>
+        <div class="row2">
+          <label>Nom de l'application<input id="fName" required minlength="2" maxlength="40" placeholder="Mon application"></label>
+          <label>Version<input id="fVersion" required maxlength="16" pattern="[0-9A-Za-z._\-]{1,16}" placeholder="1.0"></label>
+        </div>
+        <div class="row2">
+          <label>Catégorie<select id="fCat"><option>Outils</option><option>IA</option><option>Jeux</option><option>Social</option><option>Éducation</option><option>Finance</option><option>Autre</option></select></label>
+          <label>Mots-clés (facultatif)<input id="fTags" maxlength="90" placeholder="rapide, gratuit, hors ligne"></label>
+        </div>
+        <label>Description<textarea id="fDesc" required minlength="10" maxlength="600" rows="3" placeholder="À quoi sert votre application ?"></textarea></label>
+        <div class="icon-pick">
+          <img id="icoPrev" class="app-icon" width="56" height="56" alt="" hidden>
+          <label class="btn btn-ghost small" for="icoFile"><i class="fa-regular fa-image"></i> Icône (facultatif)</label>
+          <input id="icoFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+        <p id="pubErr" class="form-error" role="alert"></p>
+        <button class="btn btn-gold" type="submit" id="pubBtn"><i class="fa-solid fa-rocket"></i> Publier</button>
+      </form>
+    </section>
+
+    <section id="stepUp" class="center" hidden>
+      <h2>Envoi en cours…</h2>
+      <div class="ring" aria-hidden="true">
+        <svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="54"/><circle id="ringFg" class="ring-fg" cx="60" cy="60" r="54"/></svg>
+        <b id="ringPct">0%</b>
+      </div>
+      <p id="upInfo" class="modal-lead" aria-live="polite">Préparation…</p>
+      <button id="upCancel" class="btn btn-ghost" type="button">Annuler</button>
+    </section>
+
+    <section id="stepDone" class="center" hidden>
+      <div class="done-badge" aria-hidden="true"><i class="fa-solid fa-check"></i></div>
+      <h2>Application publiée</h2>
+      <p class="modal-lead"><strong id="doneName"></strong> est maintenant disponible dans le catalogue.</p>
+      <button id="doneBtn" class="btn btn-gold" type="button">Voir le catalogue</button>
+    </section>
+  </div>
+</div>
 
 <div class="security-strip"><span><i class="fa-solid fa-shield-halved"></i> Connexion protégée · Téléchargements vérifiés</span></div>
 <footer>
