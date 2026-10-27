@@ -23,13 +23,11 @@ vercel.json           routes, sécurité (CSP), cache
 
 Données écrites dans Firebase : `store/apps`, `store/icons`, `store/stats` (rien d'autre). APK dans Storage : `apk/<id>.apk`.
 
-## Mise en route (obligatoire)
+## Mise en route
 
-1. Vercel → *Settings → Environment Variables* → `FIREBASE_SERVICE_ACCOUNT` = le JSON complet du compte de service
-   (le même que dans `Davbot-main/backend/firebase.js`, objet `SERVICE_ACCOUNT`).
-   Alternative : coller l'objet dans `INLINE_SERVICE_ACCOUNT` de `backend/firebase.js` (**dépôt privé uniquement**).
-2. Déployer. Aucune autre variable.
-3. Optionnel : ajouter vos numéros Davbot One dans `STORE_ADMINS` (`backend/firebase.js`) pour pouvoir supprimer n'importe quelle application.
+Aucune variable d'environnement. Le compte de service est intégré dans `backend/firebase.js` (le même que `Davbot-main/backend/firebase.js`). Dépôt **privé** obligatoire. Déployer sur Vercel, c'est tout.
+
+Les numéros dans `STORE_ADMINS` (`backend/firebase.js`) peuvent supprimer n'importe quelle application.
 
 ## Comment fonctionne l'upload
 
