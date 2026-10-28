@@ -8,15 +8,15 @@
 <meta name="theme-color" content="#07090f">
 <title>DAVBOT Store — Applications Android | DAVBOT IA PRO et DAVBOT One</title>
 <meta name="description" content="DAVBOT Store : téléchargez DAVBOT IA PRO et DAVBOT One, les applications Android créées par Ir David Mpongo. Téléchargement direct, sans inscription. Publiez votre APK avec un compte Davbot One.">
-<link rel="canonical" href="https://portfolio-david-mpongo-chi.vercel.app/store-apk">
+<link rel="canonical" href="https://portfolio-ir-david-mpongo-v3.vercel.app/store-apk">
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/img/davbot-ia-pro.png">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="fr_FR">
 <meta property="og:title" content="DAVBOT Store — Applications Android">
 <meta property="og:description" content="DAVBOT IA PRO et DAVBOT One : téléchargez les applications Android de Ir David Mpongo.">
-<meta property="og:url" content="https://portfolio-david-mpongo-chi.vercel.app/store-apk">
-<meta property="og:image" content="https://portfolio-david-mpongo-chi.vercel.app/img/davbot-ia-pro.png">
+<meta property="og:url" content="https://portfolio-ir-david-mpongo-v3.vercel.app/store-apk">
+<meta property="og:image" content="https://portfolio-ir-david-mpongo-v3.vercel.app/img/davbot-ia-pro.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -86,8 +86,8 @@
     </section>
 
     <section id="stepForm" hidden>
-      <div class="eyebrow"><span class="dot"></span> NOUVELLE APPLICATION</div>
-      <h2>Publier mon APK</h2>
+      <div class="eyebrow"><span class="dot"></span> <span id="pubEyebrow">NOUVELLE APPLICATION</span></div>
+      <h2 id="pubHead">Publier mon APK</h2>
       <p class="modal-lead">Connecté en tant que <strong id="whoName"></strong>. Votre APK est vérifié puis publié aussitôt.</p>
       <form id="pubForm" class="form">
         <div id="drop" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier APK">
@@ -97,15 +97,15 @@
           <span id="dropSub">ou touchez pour parcourir · 10 Mo maximum</span>
         </div>
         <div class="row2">
-          <label>Nom de l'application<input id="fName" required minlength="2" maxlength="40" placeholder="Mon application"></label>
+          <label data-pub="new">Nom de l'application<input id="fName" required minlength="2" maxlength="40" placeholder="Mon application"></label>
           <label>Version<input id="fVersion" required maxlength="16" pattern="[0-9A-Za-z._\-]{1,16}" placeholder="1.0"></label>
         </div>
-        <div class="row2">
+        <div class="row2" data-pub="new">
           <label>Catégorie<select id="fCat"><option>Outils</option><option>IA</option><option>Jeux</option><option>Social</option><option>Éducation</option><option>Finance</option><option>Autre</option></select></label>
           <label>Mots-clés (facultatif)<input id="fTags" maxlength="90" placeholder="rapide, gratuit, hors ligne"></label>
         </div>
-        <label>Description<textarea id="fDesc" required minlength="10" maxlength="600" rows="3" placeholder="À quoi sert votre application ?"></textarea></label>
-        <div class="icon-pick">
+        <label><span id="lblDesc">Description</span><textarea id="fDesc" required minlength="10" maxlength="600" rows="3" placeholder="À quoi sert votre application ?"></textarea></label>
+        <div class="icon-pick" data-pub="new">
           <img id="icoPrev" class="app-icon" width="56" height="56" alt="" hidden>
           <label class="btn btn-ghost small" for="icoFile"><i class="fa-regular fa-image"></i> Icône (facultatif)</label>
           <input id="icoFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
@@ -127,8 +127,8 @@
 
     <section id="stepDone" class="center" hidden>
       <div class="done-badge" aria-hidden="true"><i class="fa-solid fa-check"></i></div>
-      <h2>Application publiée</h2>
-      <p class="modal-lead"><strong id="doneName"></strong> est maintenant disponible dans le catalogue.</p>
+      <h2 id="doneTitle">Application publiée</h2>
+      <p class="modal-lead"><strong id="doneName"></strong> <span id="doneMsg">est maintenant disponible dans le catalogue.</span></p>
       <button id="doneBtn" class="btn btn-gold" type="button">Voir le catalogue</button>
     </section>
   </div>
@@ -137,6 +137,7 @@
 <div class="security-strip"><span><i class="fa-solid fa-shield-halved"></i> Connexion protégée · Téléchargements vérifiés</span></div>
 <footer>
   <div><strong>DAV<span class="gold">BOT</span> STORE</strong><p>Applications Android • IA • Outils</p></div>
+  <a href="https://wa.me/243967930291" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>
   <a href="/">Retour au portfolio</a>
 </footer>
 </body>

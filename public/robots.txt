@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://portfolio-david-mpongo-chi.vercel.app/sitemap.xml
+Sitemap: https://portfolio-ir-david-mpongo-v3.vercel.app/sitemap.xml
