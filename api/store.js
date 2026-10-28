@@ -2,7 +2,7 @@
 
 // DAVBOT Store — UNE seule fonction Vercel :  /api/store?action=…
 //   list · icon · download           (public, sans compte)
-//   login · me · init · finish · remove   (compte Davbot One requis)
+//   login · me · init · chunk · finish · remove   (compte Davbot One requis)
 const crypto = require("node:crypto");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
@@ -12,7 +12,9 @@ const official = require("../data/apps.json");
 const { httpError } = fb;
 const ALLOWED_PREFIX = "https://github.com/davbotapp/Publications-apk-online-/releases/download/";
 const CATEGORIES = ["IA", "Outils", "Jeux", "Social", "Éducation", "Finance", "Autre"];
-const MAX_APK = 150 * 1024 * 1024;
+const MAX_APK = 10 * 1024 * 1024;       // APK stockés dans la Realtime Database (base64)
+const CHUNK = 1024 * 1024;             // morceau envoyé par le navigateur (1 Mo → ~1,4 Mo en base64)
+const MAX_TOTAL = 400 * 1024 * 1024;   // total maximum d'APK communautaires (la base gratuite fait 1 Go)
 const MIN_APK = 50 * 1024;
 const MAX_APPS_PER_USER = 5;
 const MAX_ICON = 60 * 1024;
@@ -120,11 +122,22 @@ async function download(req, res) {
   if (!/^[a-f0-9]{12}$/.test(key)) return reply(res, 404, { ok: false, message: "APK introuvable." });
   const r = await fb.db(`store/apps/${key}`);
   if (!r || r.status !== "published") return reply(res, 404, { ok: false, message: "APK introuvable." });
-  if (req.method !== "HEAD") await bump(key);
   const file = `${r.slug}-v${String(r.version).replace(/[^0-9A-Za-z.]/g, "")}.apk`;
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "application/vnd.android.package-archive");
+  res.setHeader("Content-Disposition", `attachment; filename="${file}"`);
+  res.setHeader("Content-Length", String(r.size));
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Location", fb.signedDownloadUrl(r.object, file));
-  return res.status(302).end();
+  if (req.method === "HEAD") return res.end();
+  await bump(key);
+  const count = Math.ceil(r.size / CHUNK);
+  for (let i = 0; i < count; i++) {
+    const part = await fb.db(`store/files/${key}/c${i}`);
+    if (typeof part !== "string") return res.destroy();
+    if (!res.write(Buffer.from(part, "base64"))) await new Promise((ok) => res.once("drain", ok));
+  }
+  return res.end();
 }
 
 // ---------- compte Davbot One ----------
@@ -186,29 +199,44 @@ async function init(req, res) {
   let iconData = String(b.icon || "");
   if (iconData && (iconData.length > MAX_ICON * 1.4 || !/^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(iconData))) iconData = "";
 
-  const origin = String(req.headers.origin || "");
-  let originHost = "";
-  try { originHost = new URL(origin).host; } catch (_) { /* origine absente ou invalide */ }
-  if (!originHost || originHost !== String(req.headers.host)) throw httpError("Origine non autorisée.", 403);
-
-  const mine = Object.values((await fb.db("store/apps")) || {}).filter((r) => r && r.owner === ownerId(s.p) && (r.status === "published" || (r.status === "uploading" && r.createdAt > Date.now() - 3600000)));
+  const live = Object.values((await fb.db("store/apps")) || {}).filter((r) => r && (r.status === "published" || (r.status === "uploading" && r.createdAt > Date.now() - 3600000)));
+  const mine = live.filter((r) => r.owner === ownerId(s.p));
+  const all = live;
+  if (all.reduce((n, r) => n + (r.size || 0), 0) + size > MAX_TOTAL) throw httpError("Le store est plein pour le moment. Réessayez plus tard.", 507);
   if (mine.length >= MAX_APPS_PER_USER) throw httpError(`Limite atteinte : ${MAX_APPS_PER_USER} applications par compte. Supprimez-en une d'abord.`, 403);
 
   const id = crypto.randomBytes(6).toString("hex");
   const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "app";
-  const object = `apk/${id}.apk`;
-  const uploadUrl = await fb.startResumableUpload(object, size, origin);
   await fb.db(`store/apps/${id}`, "PUT", {
     status: "uploading", owner: ownerId(s.p), ownerPhone: s.p, ownerName: s.n, name, slug, version, category,
-    description, tags, size, object, hasIcon: !!iconData, createdAt: Date.now()
+    description, tags, size, hasIcon: !!iconData, createdAt: Date.now()
   });
   if (iconData) await fb.db(`store/icons/${id}`, "PUT", iconData);
-  return reply(res, 200, { ok: true, id, uploadUrl, chunk: 4 * 1024 * 1024 });
+  return reply(res, 200, { ok: true, id, chunk: CHUNK });
 }
 
-async function dropRecord(id, r) {
-  await fb.objectDelete(r.object).catch(() => {});
-  await Promise.all([fb.db(`store/apps/${id}`, "DELETE"), fb.db(`store/icons/${id}`, "DELETE"), fb.db(`store/stats/${id}`, "DELETE")]);
+// Reçoit un morceau de l'APK (base64) et l'écrit dans store/files/<id>/c<i>.
+async function chunk(req, res) {
+  const s = session(req);
+  rateLimit(`chunk:${ip(req)}`, 400);
+  const b = body(req);
+  const id = String(b.id || "");
+  const i = Number(b.i);
+  const data = String(b.data || "");
+  if (!/^[a-f0-9]{12}$/.test(id) || !Number.isInteger(i) || i < 0) throw httpError("Morceau invalide.");
+  const r = await fb.db(`store/apps/${id}`);
+  if (!r || r.ownerPhone !== s.p || r.status !== "uploading") throw httpError("Publication introuvable.", 404);
+  const count = Math.ceil(r.size / CHUNK);
+  if (i >= count) throw httpError("Morceau hors limites.");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw httpError("Morceau illisible.");
+  const expected = i === count - 1 ? r.size - CHUNK * (count - 1) : CHUNK;
+  if (Buffer.from(data, "base64").length !== expected) throw httpError("Taille du morceau incorrecte.", 422);
+  await fb.db(`store/files/${id}/c${i}`, "PUT", data);
+  return reply(res, 200, { ok: true, i });
+}
+
+async function dropRecord(id) {
+  await Promise.all([fb.db(`store/files/${id}`, "DELETE"), fb.db(`store/apps/${id}`, "DELETE"), fb.db(`store/icons/${id}`, "DELETE"), fb.db(`store/stats/${id}`, "DELETE")]);
 }
 
 async function finish(req, res) {
@@ -219,17 +247,20 @@ async function finish(req, res) {
   if (!r || r.ownerPhone !== s.p) throw httpError("Publication introuvable.", 404);
   if (r.status === "published") return reply(res, 200, { ok: true, app: publicCommunity(id, r, {}) });
 
-  const meta = await fb.objectMeta(r.object);
-  if (!meta || Number(meta.size) !== r.size) {
-    await dropRecord(id, r);
+  const count = Math.ceil(r.size / CHUNK);
+  const keys = Object.keys((await fb.db(`store/files/${id}`, "GET", undefined, "shallow=true")) || {});
+  if (keys.length !== count) {
+    await dropRecord(id);
     throw httpError("L'envoi est incomplet. Recommencez la publication.", 422);
   }
   // Vérification : archive ZIP (PK) contenant AndroidManifest.xml → vrai APK Android.
-  const head = await fb.objectRange(r.object, "bytes=0-3");
-  const tail = await fb.objectRange(r.object, "bytes=-524288");
-  const isZip = head.length === 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+  const first = Buffer.from((await fb.db(`store/files/${id}/c0`)) || "", "base64");
+  const last = Buffer.from((await fb.db(`store/files/${id}/c${count - 1}`)) || "", "base64");
+  const prev = count > 1 ? Buffer.from((await fb.db(`store/files/${id}/c${count - 2}`)) || "", "base64") : Buffer.alloc(0);
+  const tail = Buffer.concat([prev, last]);
+  const isZip = first.length >= 4 && first[0] === 0x50 && first[1] === 0x4b && first[2] === 0x03 && first[3] === 0x04;
   if (!isZip || !tail.includes(Buffer.from("AndroidManifest.xml"))) {
-    await dropRecord(id, r);
+    await dropRecord(id);
     throw httpError("Ce fichier n'est pas un APK Android valide.", 422);
   }
   const publishedAt = Date.now();
@@ -244,13 +275,13 @@ async function remove(req, res) {
   const r = await fb.db(`store/apps/${id}`);
   if (!r) throw httpError("Application introuvable.", 404);
   if (r.ownerPhone !== s.p && !fb.STORE_ADMINS.includes(s.p)) throw httpError("Vous ne pouvez supprimer que vos applications.", 403);
-  await dropRecord(id, r);
+  await dropRecord(id);
   return reply(res, 200, { ok: true });
 }
 
 const ROUTES = {
   list: ["GET", list], icon: ["GET", icon], download: ["GET", download],
-  login: ["POST", login], me: ["GET", me], init: ["POST", init], finish: ["POST", finish], remove: ["POST", remove]
+  login: ["POST", login], me: ["GET", me], init: ["POST", init], chunk: ["POST", chunk], finish: ["POST", finish], remove: ["POST", remove]
 };
 
 module.exports = async function handler(req, res) {
