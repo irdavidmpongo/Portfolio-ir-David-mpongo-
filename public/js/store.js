@@ -54,7 +54,8 @@
     let data = null;
     try { data = await res.json(); } catch (_) { /* réponse non JSON */ }
     if (!res.ok || !data || data.ok === false) {
-      const err = new Error((data && data.message) || `Erreur serveur (${res.status}).`);
+      const hint = res.status === 413 ? "Fichier trop volumineux." : res.status === 504 ? "Le serveur a mis trop de temps à répondre, réessayez." : `Erreur serveur (${res.status}).`;
+      const err = new Error((data && data.message) || hint);
       err.status = res.status;
       throw err;
     }
@@ -118,7 +119,7 @@
     const grid = $("apps");
     grid.setAttribute("aria-busy", "true");
     try {
-      const data = await api("list");
+      const data = await api("list", { query: "&t=" + Date.now() });
       st.apps = data.apps || [];
       render();
     } catch (e) {
@@ -202,11 +203,13 @@
     const img = new Image();
     img.onload = () => {
       let out = "";
-      for (const side of [128, 96, 64]) {
+      outer: for (const side of [128, 96, 64]) {
         const c = document.createElement("canvas"); c.width = c.height = side;
         c.getContext("2d").drawImage(img, 0, 0, side, side);
-        const d = c.toDataURL("image/webp", 0.85);
-        if (d.length <= 80000) { out = d; break; }
+        for (const type of ["image/webp", "image/jpeg"]) {
+          const d = c.toDataURL(type, 0.85);
+          if (d.startsWith("data:" + type) && d.length <= 80000) { out = d; break outer; }
+        }
       }
       URL.revokeObjectURL(url);
       st.icon = out;
@@ -266,6 +269,7 @@
       $("doneName").textContent = fin.app && fin.app.name ? fin.app.name : (upd ? st.target.name : body.name);
       $("doneMsg").textContent = fin.updated ? "est passée à la nouvelle version." : "est maintenant disponible dans le catalogue.";
       st.current = null; step("stepDone");
+      if (fin.app) { st.apps = [...st.apps.filter((a) => a.official), fin.app, ...st.apps.filter((a) => !a.official && a.id !== fin.app.id)]; render(); }
       loadApps();
     } catch (ex) {
       await cleanup();
