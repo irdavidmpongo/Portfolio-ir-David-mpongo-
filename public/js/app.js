@@ -124,6 +124,6 @@
     const d = new FormData(form);
     const text = `Bonjour David, je suis ${d.get("name")} (${d.get("email")}).\nService : ${d.get("service")}\n\n${d.get("message")}`;
     window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-    $("formStatus").textContent = "WhatsApp s’ouvre avec votre message. Si rien ne s’affiche, écrivez à davbotapp@gmail.com.";
+    $("formStatus").textContent = "WhatsApp s’ouvre avec votre message. Si rien ne s’affiche, écrivez à irdavidmpongo@gmail.com.";
   });
 })();
