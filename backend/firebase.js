@@ -14,27 +14,31 @@ const firebaseConfig = {
 };
 
 // Comptes autorisés à supprimer n'importe quelle application du store (numéros Davbot One).
-const STORE_ADMINS = [];
+const STORE_ADMINS = ["+243967930291"];
 
 // ---------------------------------------------------------------------------
 // Compte de service Firebase (projet davbot-v2) : accès administrateur à la base
-// et à Storage. ⚠ Contient une clé privée : ne jamais la publier dans un dépôt public.
-//   Option A (recommandée) : variable Vercel FIREBASE_SERVICE_ACCOUNT = le JSON complet.
-//   Option B : coller l'objet JSON ci-dessous (dépôt PRIVÉ uniquement).
+// et à Storage. Intégré ici (même objet que Davbot-main/backend/firebase.js) :
+// AUCUNE variable d'environnement. ⚠ Contient une clé privée : dépôt PRIVÉ uniquement.
 // ---------------------------------------------------------------------------
-const INLINE_SERVICE_ACCOUNT = null;
+const INLINE_SERVICE_ACCOUNT = {
+  "type": "service_account",
+  "project_id": "davbot-v2",
+  "private_key_id": "684a24c47780bbd4ce830b447372a8c41773956f",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC2eGOxr0YRKV7I\n3IS7eTHuzK82BbSk0u0RGnJrUAxVspsE+u9rVfJ9IqDU+CsczU3WA6a7xcOKcKI0\n3UAy6nGrJ24ijUrSIVG6e31yYmv/p2AlVXcMUcqqf3I0xjuLjt9aki9nVkB1XOwd\nsA68MTCKP6irsdqbU5NdaBegVWnVaArP7n/s2kRRuqv8mn6JPKNaHEV8+Plif3NR\n2XG9qPkd12Jh30O4j2OMcR6tsxq4WaF0KETLgpHb161TmlrqtzFUjvDup/RdSkyI\nx371T1St4x1q6+udUYvvwsSrQuyjDkxGOISfevyctoYYV9jswgMKNFDxKDlun/H4\nrS3C0NszAgMBAAECggEAKknPbQwedHa+iVWWC27ElD/qsV30JijeGVMkRluYaDoK\n9EYFu74BA2BFnuXe8/9etSVGfIkSTuDYruDB8qrj6hMq0qYlO3rOWqYpBhvqRKcx\nQKXEf93q1sXPnYx9m1PizrZHdy8FpE2DSUQWviW2RqwHNrdy3wGpCwJHS3jQHM1p\n8ckT8kM7kJiEB1wcH8yZGhtUFoXDsAO7Wwkr67zsorMotDioabW50qAWTpeqCaur\n5OXKylOVEEpiYTlCclIY56c2tU0lNTkjSS7pGXGXLsvzmMwx3g+LZgWFkEUxSDmD\n+Hrwu25TdrosX8KeEnhJiWGuAV7FLoE8jcwshKNZlQKBgQDsg0FjkiI/nOStpJyy\npXhHdfLbKXrrQRDLZy/9RkCiRoaAQw0LCP24A3MkFH2U4ZaJnfVHpLf1olh7J1Ak\nu8R82t0iPlydNbKZixcBA+dDZUBkjWbvhi9gt1EA6VJ54hWDiM5AQ64irIfgi0dv\nxlrkIk8pFVS59PjlROtjZQ1sDQKBgQDFgTiJ5ZMVeLAggrdTmR8dl53alP4sgbvc\nngW+lCohTK4GXEBDuDRtriiY+NxiOjXslgNC3HjbjOmUut8HW/d2cf1phGGlz2B5\nXgL5kUE5LltNLOjL4ZQiNeAYWwk5WPjqan2fCjaZuGYUolOfT8aCu/wOD74vIcOm\nvPbemotUPwKBgBORMGG6f1bf9hNfoQ8unWrcGUGEhwTblzYczV2Y6FQEnbAS3Atj\nrQoCTw5XG6SrnTa5eMd6mzWZPtTBheHkHvdtbAofOq5O+P23Aio1Vna+87rd7/w1\nD8pioDMBGq+2wqzlLpsmfkukFoG/RCO9N1vUctQlTaMs30KolwjcHWYpAoGAAmn2\n5/CPYKbN+EfAt9vaPoFY45AIn0CirCqeRVsIPMn0Io3EF0/MDD8hreT0xJqTiCW5\nOnr5Wy2YuUGjcjKUjrUL9NsyWlVzh2g3vxcgZfOEGChhXASQy+4+o+2Q6kuFF1Bf\n4q68Rhqz3LKzNPJDqdtkVEOq/mZ6PrJ2jffzlf8CgYEA5nflHsMZDShpBLcDJqdG\nzV2FKOwBSiTgSrrF/Gntvd3wWpbEi+pOh5XoXjnOx3W4ZTgUPcrk0J0u3UmQph6W\nPtWZ5SjlW6WHj+O2V4ipMkFI4XSMQ6IvfyiQZ3mm9kBF/CRQH0KlNOiC+NFsYYsG\n8kG8B9MmtU/e2SNbIGte+cU=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@davbot-v2.iam.gserviceaccount.com",
+  "client_id": "107586753655785269757",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40davbot-v2.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+};
 
 let account = null;
 function serviceAccount() {
   if (account) return account;
-  let raw = INLINE_SERVICE_ACCOUNT;
-  if (!raw && process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try { raw = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT); } catch (_) { raw = null; }
-  }
-  if (!raw || !raw.client_email || !raw.private_key) {
-    throw httpError("Store non configuré : compte de service Firebase manquant (voir README).", 503);
-  }
-  account = { ...raw, private_key: String(raw.private_key).replace(/\\n/g, "\n") };
+  account = { ...INLINE_SERVICE_ACCOUNT, private_key: String(INLINE_SERVICE_ACCOUNT.private_key).replace(/\\n/g, "\n") };
   return account;
 }
 
