@@ -1,12 +1,12 @@
 "use strict";
 
-/* DAVBOT Store : catalogue, connexion Davbot One et publication d'APK (envoi direct vers Google Storage). */
+/* DAVBOT Store : catalogue, connexion Davbot One et publication d'APK. */
 (function () {
   const $ = (id) => document.getElementById(id);
   const grid = $("apps");
   if (!grid) return;
 
-  const MAX_APK = 150 * 1024 * 1024, MIN_APK = 50 * 1024;
+  const MAX_APK = 10 * 1024 * 1024, MIN_APK = 50 * 1024;
   const KEY = "davbot-store-session";
   let apps = [], category = "tous";
 
@@ -207,7 +207,7 @@
     $("pubErr").textContent = "";
     if (!file) return;
     if (!/\.apk$/i.test(file.name)) return void ($("pubErr").textContent = "Choisissez un fichier .apk.");
-    if (file.size > MAX_APK || file.size < MIN_APK) return void ($("pubErr").textContent = "L'APK doit faire entre 50 Ko et 150 Mo.");
+    if (file.size > MAX_APK || file.size < MIN_APK) return void ($("pubErr").textContent = "L'APK doit faire entre 50 Ko et 10 Mo.");
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
     if (head[0] !== 0x50 || head[1] !== 0x4b) return void ($("pubErr").textContent = "Ce fichier n'est pas un APK valide.");
     apk = file;
@@ -237,49 +237,61 @@
     } catch (_) { iconData = ""; $("pubErr").textContent = "Image illisible."; }
   });
 
-  /* ---------- envoi par morceaux (reprise automatique) ---------- */
-  function putRange(url, blob, start, total, onBytes, ctl) {
+  /* ---------- envoi par morceaux (vers le serveur DAVBOT, base64, reprise par morceau) ---------- */
+  const toBase64 = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    r.readAsDataURL(blob);
+  });
+
+  // Envoi d'un morceau avec progression réelle (XHR), délai maximum et annulation.
+  function postChunk(payload, token, onBytes, ctl) {
     return new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
       ctl.abort = () => x.abort();
-      x.open("PUT", url);
-      x.setRequestHeader("Content-Range", `bytes ${start}-${start + blob.size - 1}/${total}`);
-      x.upload.onprogress = (e) => onBytes(e.loaded);
-      x.onload = () => resolve({ status: x.status, range: x.getResponseHeader("Range") });
+      x.open("POST", "/api/store?action=chunk");
+      x.timeout = 90000;
+      x.setRequestHeader("Content-Type", "application/json");
+      x.setRequestHeader("Accept", "application/json");
+      x.setRequestHeader("Authorization", "Bearer " + token);
+      x.upload.onprogress = (e) => { if (e.lengthComputable) onBytes(e.loaded / e.total); };
+      x.onload = () => {
+        let out = {};
+        try { out = JSON.parse(x.responseText); } catch (_) { /* réponse non JSON */ }
+        if (x.status >= 200 && x.status < 300 && out.ok !== false) return resolve();
+        const err = new Error(out.message || "Serveur indisponible (" + x.status + ")");
+        err.fatal = x.status >= 400 && x.status < 500 && x.status !== 429 && x.status !== 408;
+        reject(err);
+      };
       x.onerror = () => reject(new Error("Réseau interrompu"));
+      x.ontimeout = () => reject(new Error("Délai dépassé"));
       x.onabort = () => reject(Object.assign(new Error("Annulé"), { aborted: true }));
-      x.send(blob);
-    });
-  }
-  function askOffset(url, total) {
-    return new Promise((resolve) => {
-      const x = new XMLHttpRequest();
-      x.open("PUT", url);
-      x.setRequestHeader("Content-Range", `bytes */${total}`);
-      x.onload = () => { const m = /bytes=0-(\d+)/.exec(x.getResponseHeader("Range") || ""); resolve(x.status === 308 ? (m ? +m[1] + 1 : 0) : x.status < 300 ? total : null); };
-      x.onerror = () => resolve(null);
-      x.send();
+      x.send(JSON.stringify(payload));
     });
   }
 
-  async function sendFile(file, url, chunk, onProgress, ctl) {
-    let offset = 0, tries = 0;
-    while (offset < file.size) {
-      const part = file.slice(offset, Math.min(offset + chunk, file.size));
-      try {
-        const r = await putRange(url, part, offset, file.size, (n) => onProgress(offset + n), ctl);
-        if (r.status === 200 || r.status === 201) { offset = file.size; break; }
-        if (r.status === 308) { const m = /bytes=0-(\d+)/.exec(r.range || ""); offset = m ? +m[1] + 1 : offset + part.size; tries = 0; onProgress(offset); continue; }
-        throw new Error("Envoi refusé (" + r.status + ")");
-      } catch (err) {
-        if (err.aborted) throw err;
-        if (++tries > 4) throw new Error("Connexion perdue pendant l'envoi. Réessayez.");
-        await sleep(800 * tries);
-        const got = await askOffset(url, file.size);
-        if (got !== null) offset = got;
+  async function sendFile(file, id, chunk, onProgress, ctl) {
+    const count = Math.ceil(file.size / chunk);
+    for (let i = 0; i < count; i++) {
+      const start = i * chunk, end = Math.min(start + chunk, file.size);
+      const data = await toBase64(file.slice(start, end));
+      let tries = 0;
+      for (;;) {
+        if (ctl.cancelled) throw Object.assign(new Error("Annulé"), { aborted: true });
+        try {
+          const s = session.get();
+          await postChunk({ id, i, data }, s ? s.token : "", (f) => onProgress(start + (end - start) * f, i + 1, count), ctl);
+          break;
+        } catch (err) {
+          if (err.aborted || err.fatal) throw err;
+          if (++tries > 6) throw new Error("Connexion trop faible pendant l'envoi (" + err.message + "). Réessayez avec une meilleure connexion.");
+          $("upInfo").textContent = `Nouvel essai du morceau ${i + 1}/${count} (${tries}/6)…`;
+          await sleep(1000 * tries);
+        }
       }
+      onProgress(end, i + 1, count);
     }
-    onProgress(file.size);
   }
 
   function setRing(p) {
@@ -302,11 +314,11 @@
       } });
       ctl.id = init.id;
       const t0 = Date.now();
-      await sendFile(apk, init.uploadUrl, init.chunk, (sent) => {
+      await sendFile(apk, init.id, init.chunk, (sent, part, parts) => {
         setRing(sent / apk.size);
         const sec = Math.max((Date.now() - t0) / 1000, 0.5), speed = sent / sec;
         const eta = speed > 0 ? Math.ceil((apk.size - sent) / speed) : 0;
-        $("upInfo").textContent = `${mb(sent)} / ${mb(apk.size)} · ${(speed / 1048576).toFixed(1)} Mo/s · ${eta > 0 ? "encore " + eta + " s" : "finalisation…"}`;
+        $("upInfo").textContent = `${mb(sent)} / ${mb(apk.size)} · morceau ${part}/${parts} · ${(speed / 1048576).toFixed(1)} Mo/s · ${eta > 0 ? "encore " + eta + " s" : "finalisation…"}`;
       }, ctl);
       $("upInfo").textContent = "Vérification de l'APK…";
       const done = await api("finish", { method: "POST", auth: true, body: { id: init.id } });
@@ -314,7 +326,7 @@
       show("stepDone");
       apk = null; iconData = "";
       $("pubForm").reset(); drop.classList.remove("ok"); $("dropTitle").textContent = "Déposez votre APK ici";
-      $("dropSub").textContent = "ou touchez pour parcourir · 150 Mo maximum"; $("icoPrev").hidden = true;
+      $("dropSub").textContent = "ou touchez pour parcourir · 10 Mo maximum"; $("icoPrev").hidden = true;
       load();
     } catch (err) {
       if (ctl.id) api("remove", { method: "POST", auth: true, body: { id: ctl.id } }).catch(() => {});
