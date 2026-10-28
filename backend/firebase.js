@@ -9,8 +9,7 @@ const crypto = require("crypto");
 // Configuration publique du projet (identique à Davbot-main/backend/firebase.js).
 const firebaseConfig = {
   projectId: "davbot-v2",
-  databaseURL: "https://davbot-v2-default-rtdb.firebaseio.com",
-  storageBucket: "davbot-v2.firebasestorage.app"
+  databaseURL: "https://davbot-v2-default-rtdb.firebaseio.com"
 };
 
 // Comptes autorisés à supprimer n'importe quelle application du store (numéros Davbot One).
@@ -18,7 +17,7 @@ const STORE_ADMINS = ["+243967930291"];
 
 // ---------------------------------------------------------------------------
 // Compte de service Firebase (projet davbot-v2) : accès administrateur à la base
-// et à Storage. Intégré ici (même objet que Davbot-main/backend/firebase.js) :
+// (Realtime Database uniquement, sans Storage). Intégré ici (même objet que Davbot-main/backend/firebase.js) :
 // AUCUNE variable d'environnement. ⚠ Contient une clé privée : dépôt PRIVÉ uniquement.
 // ---------------------------------------------------------------------------
 const INLINE_SERVICE_ACCOUNT = {
@@ -48,7 +47,7 @@ function httpError(message, status = 400) {
   return e;
 }
 
-// ---- Jeton OAuth2 Google (1 h, mis en cache) pour la base et Storage ----
+// ---- Jeton OAuth2 Google (1 h, mis en cache) pour la base ----
 let tokenCache = { value: "", exp: 0 };
 async function accessToken() {
   const now = Math.floor(Date.now() / 1000);
@@ -60,8 +59,7 @@ async function accessToken() {
     iss: sa.client_email,
     scope: [
       "https://www.googleapis.com/auth/firebase.database",
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/devstorage.read_write"
+      "https://www.googleapis.com/auth/userinfo.email"
     ].join(" "),
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
@@ -99,83 +97,6 @@ async function db(path, method = "GET", body, query = "") {
   return data;
 }
 
-// ---- Cloud Storage (APK) ----
-const BUCKET = firebaseConfig.storageBucket;
-const objUrl = (name) => `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(BUCKET)}/o/${encodeURIComponent(name)}`;
-
-// Session d'envoi reprenable : le navigateur envoie ensuite l'APK directement à Google
-// (pas de limite de taille Vercel). `origin` autorise le CORS pour cette session.
-async function startResumableUpload(name, size, origin) {
-  const res = await fetch(
-    `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(BUCKET)}/o?uploadType=resumable&name=${encodeURIComponent(name)}`,
-    {
-      method: "POST",
-      headers: {
-        ...(await authHeaders()),
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Upload-Content-Type": "application/vnd.android.package-archive",
-        "X-Upload-Content-Length": String(size),
-        Origin: origin
-      },
-      body: JSON.stringify({ name, contentType: "application/vnd.android.package-archive" })
-    }
-  );
-  const location = res.headers.get("location");
-  if (!res.ok || !location) {
-    const detail = await res.text().catch(() => "");
-    let reason = "";
-    try { const j = JSON.parse(detail); reason = (j.error && (j.error.message || j.error.code)) || ""; } catch (_) { reason = detail.slice(0, 160); }
-    console.error("Storage init :", res.status, BUCKET, detail.slice(0, 400));
-    throw httpError(`Impossible de préparer l'envoi (Storage ${res.status}${reason ? " : " + reason : ""}) [bucket ${BUCKET}]`, 502);
-  }
-  return location;
-}
-
-async function objectMeta(name) {
-  const res = await fetch(objUrl(name), { headers: await authHeaders() });
-  if (res.status === 404) return null;
-  if (!res.ok) throw httpError("Lecture Storage impossible.", 502);
-  return res.json();
-}
-
-// Lit une partie de l'objet (ex. "bytes=0-3" ou "bytes=-524288").
-async function objectRange(name, range) {
-  const res = await fetch(objUrl(name) + "?alt=media", { headers: { ...(await authHeaders()), Range: range } });
-  if (!res.ok && res.status !== 206) throw httpError("Lecture Storage impossible.", 502);
-  return Buffer.from(await res.arrayBuffer());
-}
-
-async function objectDelete(name) {
-  const res = await fetch(objUrl(name), { method: "DELETE", headers: await authHeaders() });
-  if (!res.ok && res.status !== 404) throw httpError("Suppression Storage impossible.", 502);
-}
-
-// URL de téléchargement signée (V4, 5 min) : le visiteur télécharge directement depuis Google,
-// le bucket reste privé et aucun lien permanent n'existe.
-function signedDownloadUrl(name, filename, ttl = 300) {
-  const sa = serviceAccount();
-  const enc = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
-  const now = new Date();
-  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const day = stamp.slice(0, 8);
-  const scope = `${day}/auto/storage/goog4_request`;
-  const query = {
-    "X-Goog-Algorithm": "GOOG4-RSA-SHA256",
-    "X-Goog-Credential": `${sa.client_email}/${scope}`,
-    "X-Goog-Date": stamp,
-    "X-Goog-Expires": String(ttl),
-    "X-Goog-SignedHeaders": "host",
-    "response-content-disposition": `attachment; filename="${filename}"`,
-    "response-content-type": "application/vnd.android.package-archive"
-  };
-  const canonicalQuery = Object.keys(query).sort().map((k) => `${enc(k)}=${enc(query[k])}`).join("&");
-  const path = `/${BUCKET}/${name.split("/").map(enc).join("/")}`;
-  const canonical = ["GET", path, canonicalQuery, "host:storage.googleapis.com", "", "host", "UNSIGNED-PAYLOAD"].join("\n");
-  const toSign = ["GOOG4-RSA-SHA256", stamp, scope, crypto.createHash("sha256").update(canonical).digest("hex")].join("\n");
-  const signature = crypto.createSign("RSA-SHA256").update(toSign).sign(sa.private_key).toString("hex");
-  return `https://storage.googleapis.com${path}?${canonicalQuery}&X-Goog-Signature=${signature}`;
-}
-
 // ---- Sessions du store (jeton signé, aucun état serveur) ----
 function sessionKey() {
   return crypto.createHash("sha256").update("davbot-store:" + serviceAccount().private_key).digest();
@@ -205,6 +126,5 @@ function safeEqual(a, b) {
 
 module.exports = {
   firebaseConfig, STORE_ADMINS, httpError, db, safeEqual,
-  startResumableUpload, objectMeta, objectRange, objectDelete, signedDownloadUrl,
   signSession, verifySession
 };
