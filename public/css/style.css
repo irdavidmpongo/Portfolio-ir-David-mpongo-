@@ -128,3 +128,6 @@ body.light .form input,body.light .form select,body.light .form textarea{backgro
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:400;padding:12px 18px;border-radius:14px;background:#0d1626;border:1px solid var(--line);color:#fff;font-size:13px;font-weight:600;box-shadow:var(--shadow)}
 @media (max-width:640px){.row2{grid-template-columns:1fr}.auth-btn span{display:none}.modal-card{padding:24px 18px}}
 @media (prefers-reduced-motion:reduce){.modal.open,.done-badge{animation:none}.ring-fg{transition:none}}
+
+.role{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:clamp(16px,2.2vw,21px);color:var(--cyan);margin:-8px 0 16px}.app-links{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}.footer-links a{margin-left:14px}
+body.light .role{color:#0a5cff}
