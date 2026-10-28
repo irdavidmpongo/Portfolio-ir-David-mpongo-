@@ -1,398 +1,328 @@
 "use strict";
 
-// DAVBOT Store — UNE seule fonction Vercel :  /api/store?action=…
-//   list · icon · download · latest  (public, sans compte)
-//   login · me · init · chunk · finish · abort · remove   (compte Davbot One requis)
-const crypto = require("node:crypto");
-const { Readable } = require("node:stream");
-const { pipeline } = require("node:stream/promises");
-const fb = require("../backend/firebase");
-const official = require("../data/apps.json");
+/* DAVBOT Store — code NAVIGATEUR (catalogue, connexion Davbot One, publication / mise à jour d'APK).
+   Appelle uniquement /api/store?action=… (le serveur est dans api/store.js). */
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const API = "/api/store";
+  const SESSION_KEY = "davbot-store-session";
+  const INSTALLED_KEY = "davbot-installed-";
+  const MIN_APK = 50 * 1024;
+  const MAX_APK = 10 * 1024 * 1024;
 
-const { httpError } = fb;
-const ALLOWED_PREFIX = "https://github.com/irdavidmpongo/Publi-apk/releases/download/";
-const CATEGORIES = ["IA", "Outils", "Jeux", "Social", "Éducation", "Finance", "Autre"];
-const MAX_APK = 10 * 1024 * 1024;       // APK stockés dans la Realtime Database (base64)
-const CHUNK = 512 * 1024;              // morceau envoyé par le navigateur (512 Ko → ~700 Ko en base64)
-const MAX_TOTAL = 400 * 1024 * 1024;   // total maximum d'APK communautaires (la base gratuite fait 1 Go)
-const MIN_APK = 50 * 1024;
-const MAX_APPS_PER_USER = 5;
-const MAX_ICON = 60 * 1024;
-
-// ---------- utilitaires ----------
-const hits = new Map();
-function rateLimit(key, max = 12, windowMs = 10 * 60 * 1000) {
-  const now = Date.now();
-  const rec = hits.get(key);
-  if (!rec || rec.exp < now) hits.set(key, { count: 1, exp: now + windowMs });
-  else if (++rec.count > max) throw httpError("Trop de tentatives. Réessayez dans quelques minutes.", 429);
-  if (hits.size > 5000) hits.clear();
-}
-const fileKey = (id, r) => (r && r.fileKey) || id;
-const isAdmin = (s) => fb.STORE_ADMINS.includes(s.p);
-// true si la version a est strictement supérieure à la version b (ex. 2.1 > 2.0.8)
-function newer(a, b) {
-  const pa = String(a).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
-  const pb = String(b).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
-  }
-  return false;
-}
-const ip = (req) => String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "?";
-const ownerId = (phone) => crypto.createHash("sha256").update(String(phone)).digest("hex").slice(0, 12);
-const clean = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
-const body = (req) => {
-  if (req.body && typeof req.body === "object") return req.body;
-  try { return JSON.parse(req.body || "{}"); } catch (_) { return {}; }
-};
-const reply = (res, status, data, cache = "no-store") => {
-  res.setHeader("Cache-Control", cache);
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  return res.status(status).json(data);
-};
-function sizeLabel(bytes) {
-  const mb = bytes / (1024 * 1024);
-  return mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
-}
-function session(req) {
-  const h = String(req.headers.authorization || "");
-  const s = fb.verifySession(h.startsWith("Bearer ") ? h.slice(7) : "");
-  if (!s) throw httpError("Connexion Davbot One requise.", 401);
-  return s;
-}
-
-// ---------- vue publique ----------
-function publicOfficial(a, stats) {
-  const { downloadUrl, ...rest } = a;
-  return { ...rest, id: String(a.id), official: true, downloads: (a.downloads || 0) + ((stats[a.id] || {}).downloads || 0), download: `/api/download/${a.id}` };
-}
-function publicCommunity(id, r, stats) {
-  return {
-    id, slug: r.slug, name: r.name, icon: r.hasIcon ? `/api/icon/${id}` : "", developer: r.ownerName,
-    category: r.category, version: r.version, size: sizeLabel(r.size), downloads: (stats[id] || {}).downloads || 0,
-    stars: 0, premium: false, tags: r.tags || [], description: r.description, official: false,
-    ownerId: r.owner, publishedAt: r.publishedAt, updatedAt: r.updatedAt || 0, changelog: r.changelog || "", download: `/api/download/${id}`
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* indisponible */ } },
+    del(k) { try { localStorage.removeItem(k); } catch (_) { /* indisponible */ } }
   };
-}
 
-// ---------- actions publiques ----------
-async function list(req, res) {
-  const [apps, stats] = await Promise.all([fb.db("store/apps").catch(() => null), fb.db("store/stats").catch(() => null)]);
-  const st = stats || {};
-  const community = Object.entries(apps || {})
-    .filter(([, r]) => r && r.status === "published")
-    .sort((a, b) => (b[1].publishedAt || 0) - (a[1].publishedAt || 0))
-    .map(([id, r]) => publicCommunity(id, r, st));
-  return reply(res, 200, { ok: true, apps: [...official.map((a) => publicOfficial(a, st)), ...community] }, "public, s-maxage=30, stale-while-revalidate=120");
-}
+  const st = { apps: [], cat: "Tout", q: "", session: null, target: null, chosen: null, icon: "", cancelled: false, current: null };
 
-async function icon(req, res) {
-  const id = String(req.query.id || "");
-  if (!/^[a-f0-9]{12}$/.test(id)) return res.status(404).end();
-  const r = await fb.db(`store/icons/${id}`);
-  const m = /^data:image\/(webp|png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(r || ""));
-  if (!m) return res.status(404).end();
-  res.setHeader("Content-Type", `image/${m[1]}`);
-  res.setHeader("Cache-Control", "public, max-age=86400, immutable");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  return res.status(200).send(Buffer.from(m[2], "base64"));
-}
+  // ---------- utilitaires ----------
+  function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    kids.flat().forEach((c) => { if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c))); });
+    return el;
+  }
+  const icon = (cls) => h("i", { class: cls, "aria-hidden": "true" });
+  function newer(a, b) {
+    const pa = String(a).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
+    const pb = String(b).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+    }
+    return false;
+  }
+  const sizeLabel = (b) => { const mb = b / 1048576; return mb >= 1 ? mb.toFixed(1) + " Mo" : Math.max(1, Math.round(b / 1024)) + " Ko"; };
 
-async function bump(id) {
-  await fb.db(`store/stats/${id}`, "PATCH", { downloads: { ".sv": { increment: 1 } } }).catch(() => {});
-}
-
-async function download(req, res) {
-  const key = String(req.query.id || "").trim().toLowerCase();
-  const off = official.find((a) => String(a.id) === key || a.slug === key);
-  if (off) {
-    if (!String(off.downloadUrl).startsWith(ALLOWED_PREFIX)) return reply(res, 404, { ok: false, message: "APK introuvable." });
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 15000);
+  async function api(action, opts) {
+    const { method = "GET", body, query = "", auth = false } = opts || {};
+    const headers = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (auth && st.session) headers.Authorization = "Bearer " + st.session.token;
+    let res;
     try {
-      const up = await fetch(off.downloadUrl, { redirect: "follow", signal: ctl.signal });
-      clearTimeout(timer);
-      if (!up.ok || !up.body) return reply(res, 502, { ok: false, message: "APK momentanément indisponible." });
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/vnd.android.package-archive");
-      res.setHeader("Content-Disposition", `attachment; filename="${off.slug}-v${String(off.version).replace(/[^0-9A-Za-z.]/g, "")}.apk"`);
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("Cache-Control", "no-store");
-      const len = up.headers.get("content-length");
-      if (len) res.setHeader("Content-Length", len);
-      if (req.method === "HEAD") return res.end();
-      await bump(off.id);
-      return await pipeline(Readable.fromWeb(up.body), res);
+      res = await fetch(`${API}?action=${action}${query}`, { method, headers, cache: "no-store", body: body !== undefined ? JSON.stringify(body) : undefined });
+    } catch (_) { throw new Error("Connexion impossible. Vérifiez votre réseau."); }
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* réponse non JSON */ }
+    if (!res.ok || !data || data.ok === false) {
+      const err = new Error((data && data.message) || `Erreur serveur (${res.status}).`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  // ---------- catalogue ----------
+  function installed(id) { return ls.get(INSTALLED_KEY + id); }
+
+  function card(a) {
+    const inst = installed(a.id);
+    const hasUpdate = !!inst && newer(a.version, inst);
+    const mine = !!(st.session && !a.official && a.ownerId && a.ownerId === st.session.ownerId);
+
+    let ico;
+    const fallback = () => { const d = h("div", { class: "app-icon" }, icon("fa-brands fa-android")); Object.assign(d.style, { display: "grid", placeItems: "center", fontSize: "30px" }); return d; };
+    if (a.icon) { ico = h("img", { class: "app-icon", src: a.icon, alt: "", width: "76", height: "76", loading: "lazy" }); ico.addEventListener("error", () => ico.replaceWith(fallback())); }
+    else ico = fallback();
+
+    const stars = a.stars > 0 ? h("div", { class: "app-stars", "aria-label": `${a.stars} sur 5` }, [0, 1, 2, 3, 4].map((i) => icon("fa-solid fa-star" + (i < a.stars ? "" : " off")))) : null;
+    const tags = a.tags && a.tags.length ? h("div", { class: "app-tags" }, a.tags.map((t) => h("span", { text: t }))) : null;
+
+    const dl = h("a", { class: "btn btn-gold small download", href: `${API}?action=download&id=${encodeURIComponent(a.id)}`, rel: "nofollow", onclick: () => ls.set(INSTALLED_KEY + a.id, a.version) },
+      icon(hasUpdate ? "fa-solid fa-arrows-rotate" : "fa-solid fa-download"), " ", hasUpdate ? "Mettre à jour" : "Télécharger");
+
+    const actions = h("div", { class: "app-actions" }, dl,
+      mine ? h("button", { class: "btn btn-ghost small", type: "button", title: "Publier une nouvelle version", onclick: () => openForm(a) }, icon("fa-solid fa-cloud-arrow-up"), " Version") : null,
+      mine ? h("button", { class: "icon-btn", type: "button", "aria-label": "Supprimer " + a.name, onclick: () => removeApp(a) }, icon("fa-solid fa-trash")) : null);
+
+    return h("article", { class: "app-card" + (a.premium ? " premium" : "") },
+      h("div", { class: "app-top" }, ico,
+        h("div", {}, h("h3", { text: a.name }),
+          h("small", { text: `${a.developer || ""} · v${a.version} · ${a.size || ""}` }),
+          h("div", {}, h("span", { class: "badge " + (a.official ? "badge-official" : "badge-community"), text: a.official ? "Officiel" : "Communauté" })))),
+      stars,
+      h("p", { class: "app-desc", text: a.description || "" }),
+      tags,
+      a.changelog ? h("div", { class: "app-count" }, icon("fa-solid fa-sparkles"), `Nouveautés : ${a.changelog}`) : null,
+      h("div", { class: "app-count" }, icon("fa-solid fa-download"), `${(a.downloads || 0).toLocaleString("fr-FR")} téléchargements`, hasUpdate ? "  ·  Nouvelle version disponible" : ""),
+      actions);
+  }
+
+  function renderChips() {
+    const cats = ["Tout", ...new Set(st.apps.map((a) => a.category).filter(Boolean))];
+    const box = $("categories");
+    box.replaceChildren(...cats.map((c) => h("button", { class: "chip" + (c === st.cat ? " active" : ""), type: "button", "aria-pressed": String(c === st.cat), text: c, onclick: () => { st.cat = c; render(); } })));
+  }
+
+  function render() {
+    const grid = $("apps");
+    grid.setAttribute("aria-busy", "false");
+    const q = st.q.trim().toLowerCase();
+    const list = st.apps.filter((a) => (st.cat === "Tout" || a.category === st.cat) &&
+      (!q || [a.name, a.description, a.developer, a.category, (a.tags || []).join(" ")].join(" ").toLowerCase().includes(q)));
+    renderChips();
+    $("resultCount").textContent = `${list.length} application${list.length > 1 ? "s" : ""}`;
+    grid.replaceChildren(...(list.length ? list.map(card) : [h("p", { class: "state", text: "Aucune application trouvée." })]));
+  }
+
+  async function loadApps() {
+    const grid = $("apps");
+    grid.setAttribute("aria-busy", "true");
+    try {
+      const data = await api("list");
+      st.apps = data.apps || [];
+      render();
     } catch (e) {
-      clearTimeout(timer);
-      if (!res.headersSent) return reply(res, 502, { ok: false, message: "Erreur pendant le téléchargement." });
-      return res.destroy();
+      grid.setAttribute("aria-busy", "false");
+      grid.replaceChildren(h("div", { class: "state" }, h("p", { text: "Impossible de charger les applications. " + e.message }),
+        h("button", { class: "btn btn-gold", type: "button", onclick: loadApps }, "Réessayer")));
     }
   }
-  if (!/^[a-f0-9]{12}$/.test(key)) return reply(res, 404, { ok: false, message: "APK introuvable." });
-  const r = await fb.db(`store/apps/${key}`);
-  if (!r || r.status !== "published") return reply(res, 404, { ok: false, message: "APK introuvable." });
-  const file = `${r.slug}-v${String(r.version).replace(/[^0-9A-Za-z.]/g, "")}.apk`;
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "application/vnd.android.package-archive");
-  res.setHeader("Content-Disposition", `attachment; filename="${file}"`);
-  res.setHeader("Content-Length", String(r.size));
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Cache-Control", "no-store");
-  if (req.method === "HEAD") return res.end();
-  await bump(key);
-  const count = Math.ceil(r.size / CHUNK);
-  const fk = fileKey(key, r);
-  for (let i = 0; i < count; i++) {
-    const part = await fb.db(`store/files/${fk}/c${i}`);
-    if (typeof part !== "string") return res.destroy();
-    if (!res.write(Buffer.from(part, "base64"))) await new Promise((ok) => res.once("drain", ok));
+
+  async function removeApp(a) {
+    if (!window.confirm(`Supprimer « ${a.name} » du store ? Cette action est définitive.`)) return;
+    try { await api("remove", { method: "POST", auth: true, body: { id: a.id } }); await loadApps(); }
+    catch (e) { window.alert(e.message); }
   }
-  return res.end();
-}
 
-// ---------- compte Davbot One ----------
-async function findUser(identity) {
-  if (/^\+?\d{6,16}$/.test(identity)) {
-    for (const k of [identity, identity.startsWith("+") ? identity.slice(1) : "+" + identity]) {
-      const u = await fb.db(`users/${k}`);
-      if (u) return { key: k, user: u };
-    }
+  // ---------- session Davbot One ----------
+  function paintAuth() {
+    $("authLabel").textContent = st.session ? st.session.name : "Connexion Davbot One";
+    $("logoutBtn").hidden = !st.session;
   }
-  const lower = identity.toLowerCase();
-  for (const value of new Set([identity, lower])) {
-    const q = `orderBy=${encodeURIComponent('"email"')}&equalTo=${encodeURIComponent(JSON.stringify(value))}&limitToFirst=1`;
-    const found = await fb.db("users", "GET", undefined, q).catch(() => null);
-    const hit = found && Object.entries(found)[0];
-    if (hit) return { key: hit[0], user: hit[1] };
+  function saveSession(s) { st.session = s; if (s) ls.set(SESSION_KEY, JSON.stringify(s)); else ls.del(SESSION_KEY); paintAuth(); }
+  async function restoreSession() {
+    try { const s = JSON.parse(ls.get(SESSION_KEY) || "null"); if (s && s.token) st.session = s; } catch (_) { /* session illisible */ }
+    paintAuth();
+    if (!st.session) return;
+    try {
+      const me = await api("me", { auth: true });
+      saveSession({ ...st.session, name: me.name, ownerId: me.ownerId });
+      render();
+    } catch (e) { if (e.status === 401) { saveSession(null); render(); } }
   }
-  return null;
-}
 
-async function login(req, res) {
-  const b = body(req);
-  const identity = clean(b.identity, 254);
-  const password = String(b.password || "").slice(0, 64);
-  if (!identity || !password) throw httpError("Veuillez remplir les champs obligatoires.");
-  rateLimit(`login:${ip(req)}:${identity.toLowerCase()}`, 8);
-  const found = await findUser(identity);
-  if (!found) throw httpError("Compte Davbot One introuvable. Vérifiez votre numéro ou Gmail.", 404);
-  const { key, user } = found;
-  if (typeof user.password !== "string" || !fb.safeEqual(user.password, password)) throw httpError("Mot de passe incorrect.", 401);
-  if (user.blocked === true || user.status === "blocked") throw httpError("Ce compte est bloqué par l'administration DAVBOT.", 403);
-  const name = clean(user.name || "Utilisateur Davbot", 40);
-  const { token, exp } = fb.signSession({ p: key, n: name });
-  return reply(res, 200, { ok: true, token, exp, name, ownerId: ownerId(key) });
-}
+  // ---------- fenêtre de publication ----------
+  const STEPS = ["stepLogin", "stepForm", "stepUp", "stepDone"];
+  function step(name) { STEPS.forEach((s) => { $(s).hidden = s !== name; }); }
+  function openModal() { const m = $("pubModal"); m.classList.add("open"); m.setAttribute("aria-hidden", "false"); document.body.style.overflow = "hidden"; }
+  function closeModal() {
+    if (!$("stepUp").hidden) return; // envoi en cours : utiliser « Annuler »
+    const m = $("pubModal"); m.classList.remove("open"); m.setAttribute("aria-hidden", "true"); document.body.style.overflow = "";
+  }
 
-async function me(req, res) {
-  const s = session(req);
-  return reply(res, 200, { ok: true, name: s.n, ownerId: ownerId(s.p), exp: s.exp });
-}
+  function openLogin() { $("lgErr").textContent = ""; step("stepLogin"); openModal(); setTimeout(() => $("lgId").focus(), 50); }
 
-// ---------- publication d'un APK ----------
-async function init(req, res) {
-  const s = session(req);
-  rateLimit(`init:${ip(req)}`, 10);
-  const b = body(req);
-  if (b.appId) return initUpdate(res, s, b);
-  const name = clean(b.name, 40);
-  const version = clean(b.version, 16);
-  const category = CATEGORIES.includes(b.category) ? b.category : "Autre";
-  const description = clean(b.description, 600);
-  const size = Number(b.size);
-  const filename = clean(b.filename, 120);
-  const tags = String(b.tags || "").split(",").map((t) => clean(t, 20)).filter(Boolean).slice(0, 4);
-  if (name.length < 2) throw httpError("Le nom doit contenir au moins 2 caractères.");
-  if (!/^[0-9A-Za-z._-]{1,16}$/.test(version)) throw httpError("Version invalide (ex. 1.0).");
-  if (description.length < 10) throw httpError("La description doit contenir au moins 10 caractères.");
-  if (!/\.apk$/i.test(filename)) throw httpError("Seuls les fichiers .apk sont acceptés.");
-  if (!Number.isInteger(size) || size < MIN_APK || size > MAX_APK) throw httpError(`L'APK doit faire entre 50 Ko et ${MAX_APK / 1048576} Mo.`);
-  let iconData = String(b.icon || "");
-  if (iconData && (iconData.length > MAX_ICON * 1.4 || !/^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(iconData))) iconData = "";
+  function resetDrop() {
+    st.chosen = null; $("apkFile").value = "";
+    $("drop").classList.remove("ok"); $("dropTitle").textContent = "Déposez votre APK ici";
+    $("dropSub").textContent = "ou touchez pour parcourir · 10 Mo maximum";
+  }
 
-  const live = Object.values((await fb.db("store/apps")) || {}).filter((r) => r && (r.status === "published" || (r.status === "uploading" && r.createdAt > Date.now() - 3600000)));
-  const mine = live.filter((r) => r.owner === ownerId(s.p));
-  const all = live;
-  if (all.reduce((n, r) => n + (r.size || 0), 0) + size > MAX_TOTAL) throw httpError("Le store est plein pour le moment. Réessayez plus tard.", 507);
-  if (mine.length >= MAX_APPS_PER_USER) throw httpError(`Limite atteinte : ${MAX_APPS_PER_USER} applications par compte. Supprimez-en une d'abord.`, 403);
+  // app = application existante à mettre à jour, sinon nouvelle publication
+  function openForm(app) {
+    if (!st.session) { st.target = app || null; return openLogin(); }
+    st.target = app || null;
+    const upd = !!app;
+    $("pubForm").reset(); resetDrop(); st.icon = ""; $("icoPrev").hidden = true; $("pubErr").textContent = "";
+    $("whoName").textContent = st.session.name;
+    document.querySelectorAll("[data-pub=new]").forEach((el) => { el.hidden = upd; });
+    $("fName").required = !upd;
+    $("fDesc").required = !upd; $("fDesc").minLength = upd ? 0 : 10; $("fDesc").maxLength = upd ? 300 : 600;
+    $("pubEyebrow").textContent = upd ? "NOUVELLE VERSION" : "NOUVELLE APPLICATION";
+    $("pubHead").textContent = upd ? `Mettre à jour ${app.name}` : "Publier mon APK";
+    $("lblDesc").textContent = upd ? "Nouveautés de cette version (facultatif)" : "Description";
+    $("fDesc").placeholder = upd ? "Ce qui change dans cette version" : "À quoi sert votre application ?";
+    if (upd) $("fVersion").value = app.version;
+    step("stepForm"); openModal();
+  }
 
-  const id = crypto.randomBytes(6).toString("hex");
-  const slug = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "app";
-  await fb.db(`store/apps/${id}`, "PUT", {
-    status: "uploading", owner: ownerId(s.p), ownerPhone: s.p, ownerName: s.n, name, slug, version, category,
-    description, tags, size, hasIcon: !!iconData, createdAt: Date.now()
+  function chooseFile(file) {
+    $("pubErr").textContent = "";
+    if (!file) return;
+    if (!/\.apk$/i.test(file.name)) { $("pubErr").textContent = "Seuls les fichiers .apk sont acceptés."; return; }
+    if (file.size < MIN_APK || file.size > MAX_APK) { $("pubErr").textContent = "L'APK doit faire entre 50 Ko et 10 Mo."; return; }
+    st.chosen = file;
+    $("drop").classList.add("ok"); $("dropTitle").textContent = file.name; $("dropSub").textContent = sizeLabel(file.size);
+    if (!st.target && !$("fName").value) $("fName").value = file.name.replace(/\.apk$/i, "").replace(/[-_.]+/g, " ").trim().slice(0, 40);
+  }
+
+  function pickIcon(file) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let out = "";
+      for (const side of [128, 96, 64]) {
+        const c = document.createElement("canvas"); c.width = c.height = side;
+        c.getContext("2d").drawImage(img, 0, 0, side, side);
+        const d = c.toDataURL("image/webp", 0.85);
+        if (d.length <= 80000) { out = d; break; }
+      }
+      URL.revokeObjectURL(url);
+      st.icon = out;
+      if (out) { $("icoPrev").src = out; $("icoPrev").hidden = false; } else $("pubErr").textContent = "Icône trop lourde, choisissez-en une autre.";
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); $("pubErr").textContent = "Image illisible."; };
+    img.src = url;
+  }
+
+  const toB64 = (blob) => new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(",")[1] || "");
+    r.onerror = () => ko(new Error("Lecture du fichier impossible."));
+    r.readAsDataURL(blob);
   });
-  if (iconData) await fb.db(`store/icons/${id}`, "PUT", iconData);
-  return reply(res, 200, { ok: true, id, chunk: CHUNK });
-}
-
-// Mise à jour d'une application existante : même id, même lien, nouvelle version.
-// Le nouvel APK est envoyé dans un dossier séparé (pending) et ne remplace l'ancien qu'après vérification.
-async function initUpdate(res, s, b) {
-  const appId = String(b.appId);
-  if (!/^[a-f0-9]{12}$/.test(appId)) throw httpError("Application invalide.");
-  const r = await fb.db(`store/apps/${appId}`);
-  if (!r || r.status !== "published") throw httpError("Application introuvable.", 404);
-  if (r.ownerPhone !== s.p && !isAdmin(s)) throw httpError("Seul le propriétaire peut mettre à jour cette application.", 403);
-  const version = clean(b.version, 16);
-  const size = Number(b.size);
-  const filename = clean(b.filename, 120);
-  const changelog = clean(b.changelog, 300);
-  if (!/^[0-9A-Za-z._-]{1,16}$/.test(version)) throw httpError("Version invalide (ex. 2.1).");
-  if (!newer(version, r.version)) throw httpError(`La nouvelle version doit être supérieure à la version actuelle (${r.version}).`);
-  if (!/\.apk$/i.test(filename)) throw httpError("Seuls les fichiers .apk sont acceptés.");
-  if (!Number.isInteger(size) || size < MIN_APK || size > MAX_APK) throw httpError(`L'APK doit faire entre 50 Ko et ${MAX_APK / 1048576} Mo.`);
-  const live = Object.values((await fb.db("store/apps")) || {}).filter((x) => x && (x.status === "published" || (x.status === "uploading" && x.createdAt > Date.now() - 3600000)));
-  if (live.reduce((n, x) => n + (x.size || 0), 0) + size > MAX_TOTAL) throw httpError("Le store est plein pour le moment. Réessayez plus tard.", 507);
-  if (r.pending && r.pending.fileKey) await fb.db(`store/files/${r.pending.fileKey}`, "DELETE").catch(() => {});
-  const fk = crypto.randomBytes(6).toString("hex");
-  await fb.db(`store/apps/${appId}/pending`, "PUT", { fileKey: fk, version, size, changelog, createdAt: Date.now() });
-  return reply(res, 200, { ok: true, id: appId, chunk: CHUNK, update: true });
-}
-
-// Reçoit un morceau de l'APK (base64) et l'écrit dans store/files/<id>/c<i>.
-async function chunk(req, res) {
-  const s = session(req);
-  rateLimit(`chunk:${ip(req)}`, 400);
-  const b = body(req);
-  const id = String(b.id || "");
-  const i = Number(b.i);
-  const data = String(b.data || "");
-  if (!/^[a-f0-9]{12}$/.test(id) || !Number.isInteger(i) || i < 0) throw httpError("Morceau invalide.");
-  const r = await fb.db(`store/apps/${id}`);
-  let key, size;
-  if (r && r.status === "uploading" && r.ownerPhone === s.p) { key = id; size = r.size; }
-  else if (r && r.status === "published" && r.pending && (r.ownerPhone === s.p || isAdmin(s))) { key = r.pending.fileKey; size = r.pending.size; }
-  else throw httpError("Publication introuvable.", 404);
-  const count = Math.ceil(size / CHUNK);
-  if (i >= count) throw httpError("Morceau hors limites.");
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw httpError("Morceau illisible.");
-  const expected = i === count - 1 ? size - CHUNK * (count - 1) : CHUNK;
-  if (Buffer.from(data, "base64").length !== expected) throw httpError("Taille du morceau incorrecte.", 422);
-  await fb.db(`store/files/${key}/c${i}`, "PUT", data);
-  return reply(res, 200, { ok: true, i });
-}
-
-async function dropRecord(id, r) {
-  const jobs = [fb.db(`store/files/${fileKey(id, r)}`, "DELETE"), fb.db(`store/apps/${id}`, "DELETE"), fb.db(`store/icons/${id}`, "DELETE"), fb.db(`store/stats/${id}`, "DELETE")];
-  if (r && r.pending && r.pending.fileKey) jobs.push(fb.db(`store/files/${r.pending.fileKey}`, "DELETE"));
-  await Promise.all(jobs);
-}
-
-async function dropPending(id, r) {
-  if (r && r.pending && r.pending.fileKey) await fb.db(`store/files/${r.pending.fileKey}`, "DELETE").catch(() => {});
-  await fb.db(`store/apps/${id}`, "PATCH", { pending: null }).catch(() => {});
-}
-
-// Vérifie qu'un envoi est complet et que c'est un vrai APK (ZIP contenant AndroidManifest.xml).
-async function verifyApk(key, size) {
-  const count = Math.ceil(size / CHUNK);
-  const keys = Object.keys((await fb.db(`store/files/${key}`, "GET", undefined, "shallow=true")) || {});
-  if (keys.length !== count) return "L'envoi est incomplet. Recommencez la publication.";
-  const first = Buffer.from((await fb.db(`store/files/${key}/c0`)) || "", "base64");
-  const last = Buffer.from((await fb.db(`store/files/${key}/c${count - 1}`)) || "", "base64");
-  const prev = count > 1 ? Buffer.from((await fb.db(`store/files/${key}/c${count - 2}`)) || "", "base64") : Buffer.alloc(0);
-  const tail = Buffer.concat([prev, last]);
-  const isZip = first.length >= 4 && first[0] === 0x50 && first[1] === 0x4b && first[2] === 0x03 && first[3] === 0x04;
-  if (!isZip || !tail.includes(Buffer.from("AndroidManifest.xml"))) return "Ce fichier n'est pas un APK Android valide.";
-  return "";
-}
-
-async function finish(req, res) {
-  const s = session(req);
-  const id = String(body(req).id || "");
-  if (!/^[a-f0-9]{12}$/.test(id)) throw httpError("Publication invalide.");
-  const r = await fb.db(`store/apps/${id}`);
-  if (!r) throw httpError("Publication introuvable.", 404);
-
-  // Mise à jour d'une application déjà publiée
-  if (r.status === "published" && r.pending) {
-    if (r.ownerPhone !== s.p && !isAdmin(s)) throw httpError("Publication introuvable.", 404);
-    const p = r.pending;
-    const problem = await verifyApk(p.fileKey, p.size);
-    if (problem) { await dropPending(id, r); throw httpError(problem, 422); }
-    const oldKey = fileKey(id, r);
-    const updatedAt = Date.now();
-    await fb.db(`store/apps/${id}`, "PATCH", { version: p.version, size: p.size, fileKey: p.fileKey, changelog: p.changelog || "", updatedAt, pending: null });
-    if (oldKey !== p.fileKey) await fb.db(`store/files/${oldKey}`, "DELETE").catch(() => {});
-    return reply(res, 200, { ok: true, updated: true, app: publicCommunity(id, { ...r, version: p.version, size: p.size, changelog: p.changelog || "", updatedAt }, {}) });
-  }
-
-  if (r.ownerPhone !== s.p) throw httpError("Publication introuvable.", 404);
-  if (r.status === "published") return reply(res, 200, { ok: true, app: publicCommunity(id, r, {}) });
-  const problem = await verifyApk(fileKey(id, r), r.size);
-  if (problem) { await dropRecord(id, r); throw httpError(problem, 422); }
-  const publishedAt = Date.now();
-  await fb.db(`store/apps/${id}`, "PATCH", { status: "published", publishedAt });
-  return reply(res, 200, { ok: true, app: publicCommunity(id, { ...r, publishedAt }, {}) });
-}
-
-// Annule une mise à jour en cours (l'application actuelle reste intacte).
-async function abort(req, res) {
-  const s = session(req);
-  const id = String(body(req).id || "");
-  if (!/^[a-f0-9]{12}$/.test(id)) throw httpError("Application invalide.");
-  const r = await fb.db(`store/apps/${id}`);
-  if (!r || (r.ownerPhone !== s.p && !isAdmin(s))) throw httpError("Application introuvable.", 404);
-  await dropPending(id, r);
-  return reply(res, 200, { ok: true });
-}
-
-// Dernière version d'une application (public, utilisable depuis l'application elle-même).
-// GET /api/latest/<slug ou id>  →  { version, download, changelog… }
-async function latest(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  const key = String(req.query.id || "").trim().toLowerCase();
-  const base = req.headers.host ? `https://${req.headers.host}` : "";
-  const off = official.find((a) => String(a.id) === key || a.slug === key);
-  let out = null;
-  if (off) {
-    out = { id: String(off.id), slug: off.slug, name: off.name, version: String(off.version), size: off.size, changelog: "", updatedAt: 0, official: true };
-  } else if (key) {
-    let id = /^[a-f0-9]{12}$/.test(key) ? key : "", r = id ? await fb.db(`store/apps/${id}`) : null;
-    if (!r) {
-      const all = (await fb.db("store/apps")) || {};
-      const hit = Object.entries(all).filter(([, x]) => x && x.status === "published" && x.slug === key).sort((a, b) => (b[1].publishedAt || 0) - (a[1].publishedAt || 0))[0];
-      if (hit) { id = hit[0]; r = hit[1]; }
+  async function retry(fn, n = 3) {
+    for (let i = 1; ; i++) {
+      try { return await fn(); }
+      catch (e) { if (i >= n || (e.status && e.status < 500 && e.status !== 429)) throw e; await new Promise((r) => setTimeout(r, 800 * i)); }
     }
-    if (r && r.status === "published") out = { id, slug: r.slug, name: r.name, version: String(r.version), size: sizeLabel(r.size), changelog: r.changelog || "", updatedAt: r.updatedAt || r.publishedAt || 0, official: false };
   }
-  if (!out) return reply(res, 404, { ok: false, message: "Application introuvable." });
-  return reply(res, 200, { ok: true, ...out, download: `${base}/api/download/${out.id}`, page: `${base}/store-apk` }, "public, s-maxage=30, stale-while-revalidate=60");
-}
-
-async function remove(req, res) {
-  const s = session(req);
-  const id = String(body(req).id || req.query.id || "");
-  if (!/^[a-f0-9]{12}$/.test(id)) throw httpError("Application invalide.");
-  const r = await fb.db(`store/apps/${id}`);
-  if (!r) throw httpError("Application introuvable.", 404);
-  if (r.ownerPhone !== s.p && !isAdmin(s)) throw httpError("Vous ne pouvez supprimer que vos applications.", 403);
-  await dropRecord(id, r);
-  return reply(res, 200, { ok: true });
-}
-
-const ROUTES = {
-  list: ["GET", list], icon: ["GET", icon], download: ["GET", download],
-  login: ["POST", login], me: ["GET", me], init: ["POST", init], chunk: ["POST", chunk], finish: ["POST", finish], abort: ["POST", abort], remove: ["POST", remove], latest: ["GET", latest]
-};
-
-module.exports = async function handler(req, res) {
-  const route = ROUTES[String(req.query.action || "")];
-  if (!route) return reply(res, 404, { ok: false, message: "Action inconnue." });
-  const [method, fn] = route;
-  const allowed = method === "GET" ? ["GET", "HEAD"] : [method];
-  if (!allowed.includes(req.method)) {
-    res.setHeader("Allow", allowed.join(", "));
-    return reply(res, 405, { ok: false, message: "Méthode non autorisée." });
+  function progress(p) {
+    const C = 2 * Math.PI * 54, ring = $("ringFg");
+    ring.style.strokeDasharray = String(C);
+    ring.style.strokeDashoffset = String(C * (1 - Math.min(1, p)));
+    $("ringPct").textContent = Math.round(p * 100) + "%";
   }
-  try {
-    return await fn(req, res);
-  } catch (e) {
-    if (!e.status || e.status >= 500) console.error("store:", req.query.action, e && e.message);
-    if (res.headersSent) return res.destroy();
-    return reply(res, e.status || 500, { ok: false, message: e.status ? e.message : "Erreur serveur." });
+
+  async function submit(e) {
+    e.preventDefault();
+    const err = $("pubErr"); err.textContent = "";
+    const file = st.chosen;
+    if (!file) { err.textContent = "Choisissez d'abord un fichier APK."; return; }
+    const upd = !!st.target;
+    const body = upd
+      ? { appId: st.target.id, version: $("fVersion").value.trim(), filename: file.name, size: file.size, changelog: $("fDesc").value.trim() }
+      : { name: $("fName").value.trim(), version: $("fVersion").value.trim(), category: $("fCat").value, tags: $("fTags").value.trim(), description: $("fDesc").value.trim(), filename: file.name, size: file.size, icon: st.icon };
+
+    st.cancelled = false; st.current = null;
+    $("pubBtn").disabled = true; progress(0); $("upInfo").textContent = "Préparation…"; step("stepUp");
+    try {
+      const init = await api("init", { method: "POST", auth: true, body });
+      st.current = { id: init.id, update: !!init.update };
+      const size = init.chunk, total = Math.ceil(file.size / size);
+      for (let i = 0; i < total; i++) {
+        if (st.cancelled) throw new Error("__cancel__");
+        const data = await toB64(file.slice(i * size, (i + 1) * size));
+        await retry(() => api("chunk", { method: "POST", auth: true, body: { id: init.id, i, data } }));
+        progress(((i + 1) / total) * 0.95);
+        $("upInfo").textContent = `Envoi… ${i + 1}/${total}`;
+      }
+      if (st.cancelled) throw new Error("__cancel__");
+      $("upInfo").textContent = "Vérification de l'APK…";
+      const fin = await api("finish", { method: "POST", auth: true, body: { id: init.id } });
+      progress(1);
+      $("doneTitle").textContent = fin.updated ? "Application mise à jour" : "Application publiée";
+      $("doneName").textContent = fin.app && fin.app.name ? fin.app.name : (upd ? st.target.name : body.name);
+      $("doneMsg").textContent = fin.updated ? "est passée à la nouvelle version." : "est maintenant disponible dans le catalogue.";
+      st.current = null; step("stepDone");
+      loadApps();
+    } catch (ex) {
+      await cleanup();
+      if (ex.message === "__cancel__") { step("stepForm"); }
+      else {
+        if (ex.status === 401) { saveSession(null); step("stepForm"); err.textContent = "Session expirée : reconnectez-vous."; openLogin(); }
+        else { step("stepForm"); err.textContent = ex.message; }
+      }
+    } finally { $("pubBtn").disabled = false; }
   }
-};
+
+  // supprime l'envoi inachevé (nouvelle app) ou annule la mise à jour en attente
+  async function cleanup() {
+    const c = st.current; st.current = null;
+    if (!c || !st.session) return;
+    try { await api(c.update ? "abort" : "remove", { method: "POST", auth: true, body: { id: c.id } }); } catch (_) { /* nettoyage au mieux */ }
+  }
+
+  async function doLogin(e) {
+    e.preventDefault();
+    const btn = $("lgBtn"), err = $("lgErr"); err.textContent = ""; btn.disabled = true;
+    try {
+      const r = await api("login", { method: "POST", body: { identity: $("lgId").value.trim(), password: $("lgPw").value } });
+      saveSession({ token: r.token, exp: r.exp, name: r.name, ownerId: r.ownerId });
+      $("lgPw").value = "";
+      render();
+      openForm(st.target);
+    } catch (ex) { err.textContent = ex.message; }
+    finally { btn.disabled = false; }
+  }
+
+  // ---------- branchements ----------
+  function init() {
+    $("publishBtn").addEventListener("click", () => openForm(null));
+    $("authBtn").addEventListener("click", () => (st.session ? openForm(null) : openLogin()));
+    $("logoutBtn").addEventListener("click", () => { saveSession(null); render(); });
+    $("pubClose").addEventListener("click", closeModal);
+    $("doneBtn").addEventListener("click", () => { closeModal(); });
+    $("pubModal").addEventListener("click", (e) => { if (e.target === $("pubModal")) closeModal(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+    $("loginForm").addEventListener("submit", doLogin);
+    $("pubForm").addEventListener("submit", submit);
+    $("upCancel").addEventListener("click", async () => { st.cancelled = true; $("upInfo").textContent = "Annulation…"; });
+
+    const drop = $("drop");
+    drop.addEventListener("click", (e) => { if (e.target !== $("apkFile")) $("apkFile").click(); });
+    drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("apkFile").click(); } });
+    ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+    drop.addEventListener("drop", (e) => chooseFile(e.dataTransfer && e.dataTransfer.files[0]));
+    $("apkFile").addEventListener("change", (e) => chooseFile(e.target.files[0]));
+    $("icoFile").addEventListener("change", (e) => pickIcon(e.target.files[0]));
+    $("search").addEventListener("input", (e) => { st.q = e.target.value; render(); });
+
+    loadApps();
+    restoreSession();
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+})();
