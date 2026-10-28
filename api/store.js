@@ -10,7 +10,7 @@ const fb = require("../backend/firebase");
 const official = require("../data/apps.json");
 
 const { httpError } = fb;
-const ALLOWED_PREFIX = "https://github.com/davbotapp/Publications-apk-online-/releases/download/";
+const ALLOWED_PREFIX = "https://github.com/irdavidmpongo/Publi-apk/releases/download/";
 const CATEGORIES = ["IA", "Outils", "Jeux", "Social", "Éducation", "Finance", "Autre"];
 const MAX_APK = 10 * 1024 * 1024;       // APK stockés dans la Realtime Database (base64)
 const CHUNK = 512 * 1024;              // morceau envoyé par le navigateur (512 Ko → ~700 Ko en base64)
