@@ -13,7 +13,7 @@
     "premium": true,
     "tags": ["Hors connexion", "Texte", "Images"],
     "description": "Votre assistant IA nouvelle génération : rédigez, créez des images, analysez et automatisez vos tâches grâce à des outils avancés, dans une interface rapide et élégante. Fonctionne même hors connexion, pour rester productif partout, à tout moment.",
-    "downloadUrl": "https://github.com/davbotapp/Publications-apk-online-/releases/download/Davbotia/davbot-ai.apk"
+    "downloadUrl": "https://github.com/irdavidmpongo/Publi-apk/releases/download/Davbotai/davbot-ai.apk"
   },
   {
     "id": 2,
@@ -29,6 +29,6 @@
     "premium": false,
     "tags": ["Réseau social", "IA", "Outils"],
     "description": "Plateforme tout-en-un et réseau social : discutez, publiez et partagez avec la communauté, et profitez d’outils d’IA, de développement, d’APK, de musique personnalisée, de sites web, de VPN et d’automatisation, dans une seule application simple, rapide et puissante.",
-    "downloadUrl": "https://github.com/davbotapp/Publications-apk-online-/releases/download/Davbotone/Davbot-one.1.apk"
+    "downloadUrl": "https://github.com/irdavidmpongo/Publi-apk/releases/download/Davbotone/Davbot-One.apk"
   }
 ]
