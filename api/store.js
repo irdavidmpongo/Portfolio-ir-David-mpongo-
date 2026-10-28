@@ -84,7 +84,7 @@ async function list(req, res) {
     .filter(([, r]) => r && r.status === "published")
     .sort((a, b) => (b[1].publishedAt || 0) - (a[1].publishedAt || 0))
     .map(([id, r]) => publicCommunity(id, r, st));
-  return reply(res, 200, { ok: true, apps: [...official.map((a) => publicOfficial(a, st)), ...community] }, "public, s-maxage=30, stale-while-revalidate=120");
+  return reply(res, 200, { ok: true, apps: [...official.map((a) => publicOfficial(a, st)), ...community] }, "public, s-maxage=5, stale-while-revalidate=15");
 }
 
 async function icon(req, res) {
@@ -156,16 +156,32 @@ async function download(req, res) {
 async function findUser(identity) {
   if (/^\+?\d{6,16}$/.test(identity)) {
     for (const k of [identity, identity.startsWith("+") ? identity.slice(1) : "+" + identity]) {
-      const u = await fb.db(`users/${k}`);
-      if (u) return { key: k, user: u };
+      const u = await fb.db(`users/${k}`).catch(() => null);
+      if (u && typeof u === "object") return { key: k, user: u };
     }
   }
-  const lower = identity.toLowerCase();
-  for (const value of new Set([identity, lower])) {
+  const wanted = identity.toLowerCase();
+  const same = (u) => u && typeof u === "object" && typeof u.email === "string" && u.email.trim().toLowerCase() === wanted;
+  // 1) requête indexée (rapide, demande ".indexOn": "email" dans les règles Firebase)
+  for (const value of new Set([identity, wanted])) {
     const q = `orderBy=${encodeURIComponent('"email"')}&equalTo=${encodeURIComponent(JSON.stringify(value))}&limitToFirst=1`;
     const found = await fb.db("users", "GET", undefined, q).catch(() => null);
     const hit = found && Object.entries(found)[0];
     if (hit) return { key: hit[0], user: hit[1] };
+  }
+  // 2) secours si l'index n'existe pas : parcours par pages (insensible à la casse)
+  if (wanted.includes("@")) {
+    let after = "";
+    for (let page = 0; page < 25; page++) {
+      const q = `orderBy=${encodeURIComponent('"$key"')}&limitToFirst=200` + (after ? `&startAt=${encodeURIComponent(JSON.stringify(after))}` : "");
+      const batch = await fb.db("users", "GET", undefined, q).catch(() => null);
+      const entries = Object.entries(batch || {}).filter(([k]) => k !== after);
+      if (!entries.length) break;
+      const hit = entries.find(([, u]) => same(u));
+      if (hit) return { key: hit[0], user: hit[1] };
+      after = entries[entries.length - 1][0];
+      if (entries.length < 199) break;
+    }
   }
   return null;
 }
@@ -212,7 +228,11 @@ async function init(req, res) {
   let iconData = String(b.icon || "");
   if (iconData && (iconData.length > MAX_ICON * 1.4 || !/^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(iconData))) iconData = "";
 
-  const live = Object.values((await fb.db("store/apps")) || {}).filter((r) => r && (r.status === "published" || (r.status === "uploading" && r.createdAt > Date.now() - 3600000)));
+  const allApps = (await fb.db("store/apps")) || {};
+  for (const [oid, o] of Object.entries(allApps)) {
+    if (o && o.status === "uploading" && !(o.createdAt > Date.now() - 3600000)) { await dropRecord(oid, o).catch(() => {}); delete allApps[oid]; }
+  }
+  const live = Object.values(allApps).filter((r) => r && (r.status === "published" || r.status === "uploading"));
   const mine = live.filter((r) => r.owner === ownerId(s.p));
   const all = live;
   if (all.reduce((n, r) => n + (r.size || 0), 0) + size > MAX_TOTAL) throw httpError("Le store est plein pour le moment. Réessayez plus tard.", 507);
@@ -286,18 +306,27 @@ async function dropPending(id, r) {
   await fb.db(`store/apps/${id}`, "PATCH", { pending: null }).catch(() => {});
 }
 
-// Vérifie qu'un envoi est complet et que c'est un vrai APK (ZIP contenant AndroidManifest.xml).
+// Vérifie qu'un envoi est complet et que c'est un vrai APK (ZIP dont le répertoire central contient AndroidManifest.xml).
 async function verifyApk(key, size) {
   const count = Math.ceil(size / CHUNK);
   const keys = Object.keys((await fb.db(`store/files/${key}`, "GET", undefined, "shallow=true")) || {});
   if (keys.length !== count) return "L'envoi est incomplet. Recommencez la publication.";
-  const first = Buffer.from((await fb.db(`store/files/${key}/c0`)) || "", "base64");
-  const last = Buffer.from((await fb.db(`store/files/${key}/c${count - 1}`)) || "", "base64");
-  const prev = count > 1 ? Buffer.from((await fb.db(`store/files/${key}/c${count - 2}`)) || "", "base64") : Buffer.alloc(0);
-  const tail = Buffer.concat([prev, last]);
+  const part = async (n) => Buffer.from((await fb.db(`store/files/${key}/c${n}`)) || "", "base64");
+  const first = await part(0);
   const isZip = first.length >= 4 && first[0] === 0x50 && first[1] === 0x4b && first[2] === 0x03 && first[3] === 0x04;
-  if (!isZip || !tail.includes(Buffer.from("AndroidManifest.xml"))) return "Ce fichier n'est pas un APK Android valide.";
-  return "";
+  if (!isZip) return "Ce fichier n'est pas un APK Android valide.";
+  // fin du fichier : on lit les 2 derniers morceaux pour trouver la fin du répertoire central (EOCD)
+  const from = Math.max(0, count - 2);
+  const tail = Buffer.concat(await Promise.all(Array.from({ length: count - from }, (_, k) => part(from + k))));
+  const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0 || eocd + 22 > tail.length) return "Ce fichier n'est pas un APK Android valide.";
+  const cdSize = tail.readUInt32LE(eocd + 12);
+  const cdOffset = tail.readUInt32LE(eocd + 16);
+  if (cdOffset + cdSize > size) return "Ce fichier n'est pas un APK Android valide.";
+  const start = Math.floor(cdOffset / CHUNK);
+  const cd = start >= from ? tail.subarray(cdOffset - from * CHUNK)
+    : Buffer.concat(await Promise.all(Array.from({ length: count - start }, (_, k) => part(start + k)))).subarray(cdOffset - start * CHUNK);
+  return cd.includes(Buffer.from("AndroidManifest.xml")) ? "" : "Ce fichier n'est pas un APK Android valide.";
 }
 
 async function finish(req, res) {
