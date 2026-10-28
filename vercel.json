@@ -22,6 +22,10 @@
       "destination": "/api/store?action=download&id=:id"
     },
     {
+      "source": "/api/latest/:id",
+      "destination": "/api/store?action=latest&id=:id"
+    },
+    {
       "source": "/api/icon/:id",
       "destination": "/api/store?action=icon&id=:id"
     }

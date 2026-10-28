@@ -7,14 +7,14 @@ Site statique + **une seule fonction Vercel** (`api/store.js`), branchée sur le
 | Qui | Peut |
 | --- | --- |
 | Tout le monde | parcourir et **télécharger** (sans compte) |
-| Compte **Davbot One** | en plus, **publier son APK** (5 apps max par compte, 10 Mo max) |
+| Compte **Davbot One** | en plus, **publier son APK** (5 apps max par compte, 10 Mo max) et **le mettre à jour** |
 
 Connexion : numéro ou Gmail + mot de passe du compte Davbot One (lus dans `users/` de la base Davbot).
 
 ## Structure
 
 ```
-api/store.js          toutes les routes : list, icon, download, login, me, init, finish, remove
+api/store.js          toutes les routes : list, icon, download, latest, login, me, init, chunk, finish, abort, remove
 backend/firebase.js   Firebase centralisé (Realtime Database, jetons) — seul fichier qui parle à Firebase
 data/apps.json        les 2 applications officielles (DAVBOT IA PRO, DAVBOT One)
 public/               index.html (portfolio), store.html, css/style.css, js/app.js, js/store.js, img/
@@ -36,7 +36,22 @@ Les numéros dans `STORE_ADMINS` (`backend/firebase.js`) peuvent supprimer n'imp
 3. `finish` : le serveur vérifie que c'est une archive contenant `AndroidManifest.xml`, puis publie. Sinon tout est supprimé.
 4. Téléchargement : le serveur relit les morceaux et les renvoie en flux (`/api/download/<id>`).
 
-## Mettre à jour une app officielle
+## Mise à jour d'une application (propriétaire)
+
+1. Se connecter au store avec son compte Davbot One, puis cliquer **Mise à jour** sur sa carte.
+2. Choisir le nouvel APK, indiquer la **nouvelle version** (supérieure à l'actuelle) et, si on veut, les nouveautés.
+3. L'ancien APK reste téléchargeable pendant l'envoi. Il n'est remplacé qu'après vérification. Si l'envoi échoue ou est annulé, rien ne change.
+
+Le lien de téléchargement de l'application ne change pas.
+
+## « Mettre à jour » chez les utilisateurs
+
+- **Dans le store** : si l'utilisateur a déjà téléchargé l'application depuis ce navigateur et qu'une version plus récente existe, le bouton devient **Mettre à jour** (avec le badge « Nouvelle version » et les nouveautés).
+- **Dans l'application elle-même** : coller `docs/verification-mise-a-jour.js` dans l'app (une seule fois, puis publier un nouvel APK). Elle interroge `/api/latest/<slug ou id>` et affiche une barre « Mettre à jour » quand une version plus récente existe.
+
+`GET /api/latest/<slug ou id>` renvoie `{ ok, version, changelog, download, … }` (public, sans compte).
+
+## Mettre à jour une app officielle (DAVBOT IA PRO, DAVBOT One)
 
 Modifier `data/apps.json` (le lien doit rester sous `github.com/davbotapp/Publications-apk-online-/releases/download/`).
 
