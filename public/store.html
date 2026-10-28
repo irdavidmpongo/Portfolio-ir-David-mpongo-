@@ -23,6 +23,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/store-fix.css">
 <script defer src="/js/app.js"></script>
 <script defer src="/js/store.js"></script>
 </head>
@@ -91,7 +92,7 @@
       <p class="modal-lead">Connecté en tant que <strong id="whoName"></strong>. Votre APK est vérifié puis publié aussitôt.</p>
       <form id="pubForm" class="form">
         <div id="drop" class="dropzone" tabindex="0" role="button" aria-label="Choisir ou déposer un fichier APK">
-          <input id="apkFile" type="file" accept=".apk,application/vnd.android.package-archive" hidden>
+          <input id="apkFile" type="file" hidden>
           <i class="fa-brands fa-android drop-ic" aria-hidden="true"></i>
           <strong id="dropTitle">Déposez votre APK ici</strong>
           <span id="dropSub">ou touchez pour parcourir · 10 Mo maximum</span>
