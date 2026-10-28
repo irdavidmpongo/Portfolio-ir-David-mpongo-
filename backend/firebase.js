@@ -121,7 +121,13 @@ async function startResumableUpload(name, size, origin) {
     }
   );
   const location = res.headers.get("location");
-  if (!res.ok || !location) throw httpError("Impossible de préparer l'envoi (Storage).", 502);
+  if (!res.ok || !location) {
+    const detail = await res.text().catch(() => "");
+    let reason = "";
+    try { const j = JSON.parse(detail); reason = (j.error && (j.error.message || j.error.code)) || ""; } catch (_) { reason = detail.slice(0, 160); }
+    console.error("Storage init :", res.status, BUCKET, detail.slice(0, 400));
+    throw httpError(`Impossible de préparer l'envoi (Storage ${res.status}${reason ? " : " + reason : ""}) [bucket ${BUCKET}]`, 502);
+  }
   return location;
 }
 
