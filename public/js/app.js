@@ -85,7 +85,7 @@
 
 /* Page d'accueil : simulateur solaire et formulaire de contact (WhatsApp). */
 (function () {
-  const WA_NUMBER = "243982697752";
+  const WA_NUMBER = "243967930291";
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
 

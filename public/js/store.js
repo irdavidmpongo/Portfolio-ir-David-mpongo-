@@ -10,6 +10,19 @@
   const KEY = "davbot-store-session";
   let apps = [], category = "tous";
 
+  /* ---------- versions déjà téléchargées sur cet appareil → bouton « Mettre à jour » ---------- */
+  const INST = "davbot-store-installed";
+  const installed = {
+    all() { try { return JSON.parse(localStorage.getItem(INST)) || {}; } catch (_) { return {}; } },
+    set(id, version) { try { const o = this.all(); o[id] = version; localStorage.setItem(INST, JSON.stringify(o)); } catch (_) { /* stockage indisponible */ } }
+  };
+  // true si la version a est strictement supérieure à b (ex. 2.1 > 2.0.8)
+  function newer(a, b) {
+    const pa = String(a).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0), pb = String(b).split(/[.\-_]/).map((x) => parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+    return false;
+  }
+
   /* ---------- utilitaires ---------- */
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
   const icon = (c) => { const i = el("i", c); i.setAttribute("aria-hidden", "true"); return i; };
@@ -56,6 +69,8 @@
 
   function card(app) {
     const mine = session.get()?.ownerId && app.ownerId === session.get().ownerId;
+    const have = installed.all()[app.id];
+    const needsUpdate = !!have && newer(app.version, have);
     const a = el("article", app.premium ? "app-card premium" : "app-card");
     a.dataset.category = norm(app.category);
     a.dataset.search = norm([app.name, app.developer, app.category, app.description, ...(app.tags || [])].join(" "));
@@ -75,6 +90,7 @@
     badge.append(icon(app.official ? "fa-solid fa-circle-check" : "fa-solid fa-users"), app.official ? " Officiel" : " Communauté");
     head.appendChild(badge);
     if (app.premium) { const v = el("span", "premium-badge"); v.append(icon("fa-solid fa-crown"), " VIP"); head.appendChild(v); }
+    if (needsUpdate) { const u = el("span", "badge badge-update"); u.append(icon("fa-solid fa-arrows-rotate"), " Nouvelle version"); head.appendChild(u); }
     top.append(img, head);
 
     const info = el("div", "app-tags");
@@ -87,11 +103,17 @@
     count.append(icon("fa-solid fa-download"), `${Number(app.downloads).toLocaleString("fr-FR")} téléchargements`);
 
     const actions = el("div", "app-actions");
-    const dl = el("a", "download");
-    dl.href = app.download; dl.setAttribute("download", ""); dl.setAttribute("aria-label", "Télécharger " + app.name);
-    dl.append(icon("fa-solid fa-download"), " Télécharger");
+    const dl = el("a", needsUpdate ? "download update" : "download");
+    dl.href = app.download; dl.setAttribute("download", ""); dl.setAttribute("aria-label", (needsUpdate ? "Mettre à jour " : "Télécharger ") + app.name);
+    dl.append(icon(needsUpdate ? "fa-solid fa-arrows-rotate" : "fa-solid fa-download"), needsUpdate ? " Mettre à jour" : " Télécharger");
+    dl.addEventListener("click", () => installed.set(app.id, app.version));
     actions.appendChild(dl);
     if (mine) {
+      const upd = el("button", "btn btn-ghost small");
+      upd.type = "button"; upd.setAttribute("aria-label", "Publier une mise à jour de " + app.name);
+      upd.append(icon("fa-solid fa-cloud-arrow-up"), " Mise à jour");
+      upd.addEventListener("click", () => openModal(app));
+      actions.appendChild(upd);
       const del = el("button", "btn btn-ghost small danger");
       del.type = "button"; del.setAttribute("aria-label", "Supprimer " + app.name);
       del.appendChild(icon("fa-solid fa-trash"));
@@ -102,7 +124,8 @@
       });
       actions.appendChild(del);
     }
-    a.append(top, app.stars ? stars(app.stars) : el("div"), info, el("p", "app-desc", app.description), count, actions);
+    const news = app.changelog ? el("p", "app-news", "Nouveautés v" + app.version + " : " + app.changelog) : null;
+    a.append(top, app.stars ? stars(app.stars) : el("div"), info, el("p", "app-desc", app.description), ...(news ? [news] : []), count, actions);
     return a;
   }
 
@@ -167,7 +190,23 @@
   const show = (id) => steps.forEach((s) => { $(s).hidden = s !== id; });
   let lastFocus = null, uploading = null;
 
-  function openModal() {
+  let updateTarget = null;
+  function setMode(app) {
+    updateTarget = app || null;
+    document.querySelectorAll('[data-pub="new"]').forEach((n) => { n.hidden = !!app; });
+    $("fName").required = !app;
+    $("fDesc").required = !app;
+    $("fDesc").minLength = app ? 0 : 10;
+    $("pubEyebrow").textContent = app ? "MISE À JOUR" : "NOUVELLE APPLICATION";
+    $("pubHead").textContent = app ? "Mettre à jour " + app.name : "Publier mon APK";
+    $("lblDesc").textContent = app ? "Nouveautés de cette version (facultatif)" : "Description";
+    $("fDesc").placeholder = app ? "Ex. : correctifs, nouvelles fonctions…" : "À quoi sert votre application ?";
+    $("fVersion").placeholder = app ? "Actuelle : " + app.version : "1.0";
+    $("pubBtn").replaceChildren(icon("fa-solid fa-rocket"), app ? " Publier la mise à jour" : " Publier");
+  }
+
+  function openModal(app) {
+    setMode(app && app.id ? app : null);
     lastFocus = document.activeElement;
     const s = session.get();
     if (s) { $("whoName").textContent = s.name; show("stepForm"); } else show("stepLogin");
@@ -180,8 +219,8 @@
     lastFocus?.focus?.();
   }
 
-  $("publishBtn").addEventListener("click", openModal);
-  $("authBtn").addEventListener("click", openModal);
+  $("publishBtn").addEventListener("click", () => openModal());
+  $("authBtn").addEventListener("click", () => openModal());
   $("pubClose").addEventListener("click", closeModal);
   modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modal.classList.contains("open")) closeModal(); });
@@ -285,8 +324,8 @@
           break;
         } catch (err) {
           if (err.aborted || err.fatal) throw err;
-          if (++tries > 6) throw new Error("Connexion trop faible pendant l'envoi (" + err.message + "). Réessayez avec une meilleure connexion.");
-          $("upInfo").textContent = `Nouvel essai du morceau ${i + 1}/${count} (${tries}/6)…`;
+          if (++tries > 6) throw new Error(`Échec du morceau ${i + 1}/${count} : ${err.message}`);
+          $("upInfo").textContent = `Morceau ${i + 1}/${count} : ${err.message} · nouvel essai ${tries}/6…`;
           await sleep(1000 * tries);
         }
       }
@@ -303,12 +342,15 @@
     e.preventDefault();
     $("pubErr").textContent = "";
     if (!apk) return void ($("pubErr").textContent = "Ajoutez d'abord votre fichier APK.");
+    const upd = updateTarget;
     const ctl = { abort() {}, cancelled: false, id: "" };
     uploading = ctl;
     show("stepUp"); setRing(0); $("upInfo").textContent = "Préparation…";
     $("upCancel").onclick = () => { ctl.cancelled = true; ctl.abort(); };
     try {
-      const init = await api("init", { method: "POST", auth: true, body: {
+      const init = await api("init", { method: "POST", auth: true, body: upd ? {
+        appId: upd.id, version: $("fVersion").value, changelog: $("fDesc").value, size: apk.size, filename: apk.name
+      } : {
         name: $("fName").value, version: $("fVersion").value, category: $("fCat").value, tags: $("fTags").value,
         description: $("fDesc").value, size: apk.size, filename: apk.name, icon: iconData
       } });
@@ -323,13 +365,15 @@
       $("upInfo").textContent = "Vérification de l'APK…";
       const done = await api("finish", { method: "POST", auth: true, body: { id: init.id } });
       $("doneName").textContent = done.app.name;
+      $("doneTitle").textContent = upd ? "Mise à jour publiée" : "Application publiée";
+      $("doneMsg").textContent = upd ? "est passée en version " + done.app.version + ". Les utilisateurs verront « Mettre à jour »." : "est maintenant disponible dans le catalogue.";
       show("stepDone");
       apk = null; iconData = "";
-      $("pubForm").reset(); drop.classList.remove("ok"); $("dropTitle").textContent = "Déposez votre APK ici";
+      setMode(null); $("pubForm").reset(); drop.classList.remove("ok"); $("dropTitle").textContent = "Déposez votre APK ici";
       $("dropSub").textContent = "ou touchez pour parcourir · 10 Mo maximum"; $("icoPrev").hidden = true;
       load();
     } catch (err) {
-      if (ctl.id) api("remove", { method: "POST", auth: true, body: { id: ctl.id } }).catch(() => {});
+      if (ctl.id) api(upd ? "abort" : "remove", { method: "POST", auth: true, body: { id: ctl.id } }).catch(() => {});
       show("stepForm");
       $("pubErr").textContent = ctl.cancelled ? "Envoi annulé." : err.message;
     }
