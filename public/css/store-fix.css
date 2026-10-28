@@ -1,0 +1,2 @@
+/* Corrige : les éléments « hidden » restaient visibles quand une classe leur donne un display (grid/flex). */
+[hidden]{display:none!important}
