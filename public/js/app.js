@@ -127,3 +127,45 @@
     $("formStatus").textContent = "WhatsApp s’ouvre avec votre message. Si rien ne s’affiche, écrivez à irdavidmpongo@gmail.com.";
   });
 })();
+
+/* Effets futuristes : progression du scroll, halo des cartes, texte animé. */
+(function () {
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* Barre de progression de lecture */
+  const bar = document.createElement("div");
+  bar.className = "scroll-bar";
+  document.body.appendChild(bar);
+  const onScroll = () => {
+    const h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.setProperty("--p", h > 0 ? Math.min(1, window.scrollY / h).toFixed(4) : 0);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* Halo lumineux qui suit le doigt / la souris sur les cartes */
+  const cards = ".glass-card,.service-card,.project-card,.contact-card,.contact-form,.steps article,.app-card";
+  document.addEventListener("pointermove", (e) => {
+    const card = e.target.closest?.(cards);
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    card.style.setProperty("--cx", `${e.clientX - r.left}px`);
+    card.style.setProperty("--cy", `${e.clientY - r.top}px`);
+  }, { passive: true });
+
+  /* Texte animé du hero */
+  const el = document.getElementById("typed");
+  if (!el || reduce) return;
+  const words = ["applications web et mobiles", "assistants d’intelligence artificielle", "installations solaires photovoltaïques", "plateformes et APIs sur mesure"];
+  let w = 0, i = words[0].length, del = true;
+  const tick = () => {
+    const word = words[w];
+    i += del ? -1 : 1;
+    el.textContent = word.slice(0, i);
+    let delay = del ? 28 : 55;
+    if (!del && i === word.length) { del = true; delay = 1800; }
+    else if (del && i === 0) { del = false; w = (w + 1) % words.length; delay = 350; }
+    setTimeout(tick, delay);
+  };
+  setTimeout(tick, 1800);
+})();
