@@ -61,3 +61,10 @@ Modifier `data/apps.json` (le lien doit rester sous `github.com/davbotapp/Public
 npm run check   # vérifie la syntaxe
 npx vercel dev  # lance le site en local
 ```
+
+## Déploiement Cloudflare Pages (pages.dev)
+
+- Dossier de sortie : `public` (aucune commande de build). Le fichier `public/_worker.js` sert les pages et relaie `/api/*` vers le backend.
+- `/store-apk` est un vrai dossier (`public/store-apk/index.html`) : plus de 404.
+- Backend : `public/_worker.js` → constante `API_ORIGIN` (par défaut le service Render qui exécute `server.js`). Sur Render : `npm start`.
+- SEO : canonical, Open Graph, JSON-LD, `sitemap.xml` et `robots.txt` pointent vers `https://portfolio-irdavid-mpongo.pages.dev`. Après déploiement : Google Search Console → Sitemaps → `sitemap.xml`, puis « Inspecter l'URL » sur `/` et `/store-apk`.

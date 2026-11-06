@@ -1,41 +1,26 @@
-const express = require('express');
-const path = require('path');
+const express = require("express");
+const path = require("path");
 const app = express();
+const store = require("./api/store.js");
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.disable("x-powered-by");
+app.use(express.json({ limit: "2mb" }));
 
-// API Mock Store Apps
-app.get('/api/apps', (req, res) => {
-  res.json([
-    {
-      id: "davbot-ai",
-      name: "Davbot AI Pro",
-      category: "SaaS / IA",
-      description: "Assistant IA Ultra Pro intégrant GPT-4o, Claude 3.5 Sonnet & Google Gemini Pro.",
-      badge: "Premium HD",
-      icon: "fa-brain-circuit",
-      techs: ["Gemini", "ChatGPT", "Claude"],
-      link: "#"
-    },
-    {
-      id: "saas-sos",
-      name: "SaaS SOS Emergency",
-      category: "Outils Développeur",
-      description: "Système de monitoring et d'intervention d'urgence pour infrastructures Web3 & Cloud.",
-      badge: "Ultra Pro",
-      icon: "fa-shield-heart",
-      techs: ["Node.js", "Express", "Vercel"],
-      link: "#"
-    }
-  ]);
-});
+// Fichiers de configuration Cloudflare : jamais servis au public
+app.use((req, res, next) => (/^\/_(worker\.js|headers|redirects)$/.test(req.path) ? res.status(404).end() : next()));
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// API du store (mêmes routes que vercel.json)
+const api = (action, withId) => (req, res) => { req.query = { ...req.query, action, ...(withId ? { id: req.params.id } : {}) }; return store(req, res); };
+app.all("/api/store", store);
+app.get("/api/apps", api("list"));
+app.get("/api/download/:id", api("download", true));
+app.get("/api/latest/:id", api("latest", true));
+app.get("/api/icon/:id", api("icon", true));
+
+app.get(["/store", "/store.html", "/store-apk/"], (req, res) => res.redirect(301, "/store-apk"));
+app.get("/store-apk", (req, res) => res.sendFile(path.join(__dirname, "public", "store-apk", "index.html")));
+app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h" }));
+app.use((req, res) => res.status(404).sendFile(path.join(__dirname, "public", "index.html")));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Serveur prêt sur le port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Serveur prêt sur le port ${PORT}`));
