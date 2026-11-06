@@ -124,6 +124,7 @@
       render();
     } catch (e) {
       grid.setAttribute("aria-busy", "false");
+      if (grid.querySelector(".app-card")) return; // API indisponible : on garde les applications officielles déjà affichées
       grid.replaceChildren(h("div", { class: "state" }, h("p", { text: "Impossible de charger les applications. " + e.message }),
         h("button", { class: "btn btn-gold", type: "button", onclick: loadApps }, "Réessayer")));
     }
