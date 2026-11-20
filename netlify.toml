@@ -1,0 +1,33 @@
+# Portfolio Ir David Mpongo + DAVBOT Store — version Netlify
+# Le site est statique (dossier public). Les appels /api/* sont relayés vers le backend
+# (api/store.js, lancé avec server.js). Pour changer d'hébergeur de backend, modifiez
+# uniquement l'adresse BACKEND ci-dessous (2 endroits : « to »).
+
+[build]
+  publish = "public"
+
+# --- API du store : relais transparent vers le backend (le navigateur reste sur votre domaine Netlify)
+[[redirects]]
+  from = "/api/*"
+  to = "https://portfolio-ir-david-mpongo.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# --- Anciennes adresses du store
+[[redirects]]
+  from = "/store"
+  to = "/store-apk"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/store.html"
+  to = "/store-apk"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/store-apk/"
+  to = "/store-apk"
+  status = 301
+  force = true
