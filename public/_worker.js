@@ -9,8 +9,12 @@ export default {
       const target = new URL(url.pathname + url.search, API_ORIGIN);
       return fetch(new Request(target, request), { redirect: "manual" });
     }
-    if (url.pathname === "/store" || url.pathname === "/store.html" || url.pathname === "/store-apk/") {
+    if (url.pathname === "/store" || url.pathname === "/store.html" || url.pathname === "/store-apk/index.html") {
       return Response.redirect(url.origin + "/store-apk", 301);
+    }
+    if (url.pathname === "/store-apk" || url.pathname === "/store-apk/") {
+      // Sert le store directement à l'adresse /store-apk (évite la boucle /store-apk <-> /store-apk/)
+      return env.ASSETS.fetch(new Request(url.origin + "/store-apk/", request));
     }
     return env.ASSETS.fetch(request);
   }
