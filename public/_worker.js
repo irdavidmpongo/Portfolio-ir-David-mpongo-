@@ -1,6 +1,6 @@
 // Cloudflare Pages (mode avancé) : fichiers statiques + proxy de /api/* vers le backend.
 // Changez uniquement API_ORIGIN si le backend (api/store.js) est hébergé ailleurs.
-const API_ORIGIN = "https://portfolio-ir-david-mpongo.onrender.com";
+const API_ORIGIN = "https://portfolio-ir-david-mpongo-7i45.netlify.app/";
 
 export default {
   async fetch(request, env) {
