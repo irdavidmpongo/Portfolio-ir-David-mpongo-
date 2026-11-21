@@ -17,7 +17,7 @@ app.get("/api/download/:id", api("download", true));
 app.get("/api/latest/:id", api("latest", true));
 app.get("/api/icon/:id", api("icon", true));
 
-app.get(["store.html", "public/index.html", "/store.html"], (req, res) => res.redirect(301, "/store-apk/index.html"));
+app.get(["store.html", "public/index.html", "/store.html"], (req, res) => res.redirect(301, "/store-apk"));
 app.get("/store-apk", (req, res) => res.sendFile(path.join(__dirname, "public", "store-apk", "index.html")));
 app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h" }));
 app.use((req, res) => res.status(404).sendFile(path.join(__dirname, "public", "index.html")));

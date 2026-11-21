@@ -6,6 +6,10 @@
   },
   "rewrites": [
     {
+      "source": "/store-apk",
+      "destination": "/store-apk/index.html"
+    },
+    {
       "source": "/api/apps",
       "destination": "/api/store?action=list"
     },
@@ -23,6 +27,11 @@
     }
   ],
   "redirects": [
+    {
+      "source": "/store-apk/index.html",
+      "destination": "/store-apk",
+      "permanent": true
+    },
     {
       "source": "/store",
       "destination": "/store-apk",

@@ -31,3 +31,16 @@
   to = "/store-apk"
   status = 301
   force = true
+
+# --- Adresse propre : /store-apk affiche le store (sans /index.html)
+[[redirects]]
+  from = "/store-apk/index.html"
+  to = "/store-apk"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/store-apk"
+  to = "/store-apk/index.html"
+  status = 200
+  force = true
