@@ -1,0 +1,17 @@
+{
+  // Worker Cloudflare : le site (dossier public) + l'API du store (worker/index.js)
+  "name": "portfolio-ir-david-mpongo",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-19",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Le Worker ne s'exécute que pour ces chemins ; le reste est servi gratuitement et sans limite.
+    "run_worker_first": ["/api/*", "/store-apk"]
+  },
+  "vars": {
+    // Numéros Davbot One autorisés à supprimer n'importe quelle application (séparés par des virgules)
+    "STORE_ADMINS": "+243967930291"
+  }
+}
