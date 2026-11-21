@@ -64,7 +64,8 @@ npx vercel dev  # lance le site en local
 
 ## Déploiement Cloudflare Pages (pages.dev)
 
-- Dossier de sortie : `public` (aucune commande de build). Le fichier `public/_worker.js` sert les pages et relaie `/api/*` vers le backend.
-- `/store-apk` est un vrai dossier (`public/store-apk/index.html`) : plus de 404.
-- Backend : `public/_worker.js` → constante `API_ORIGIN` (par défaut le service Render qui exécute `server.js`). Sur Render : `npm start`.
+Tout tourne sur Cloudflare (site + API du store dans `public/_worker.js`), sans Render ni Netlify. Mise en route : voir **CLOUDFLARE.md** (un secret `FIREBASE_SERVICE_ACCOUNT` à ajouter).
+
+- Dossier de sortie : `public` (aucune commande de build). `public/_routes.json` limite le worker à `/api/*` et `/store-apk` : le reste est servi gratuitement par Cloudflare.
+- `/store`, `/store.html` redirigent vers `/store-apk` (`public/_redirects`).
 - SEO : canonical, Open Graph, JSON-LD, `sitemap.xml` et `robots.txt` pointent vers `https://portfolio-irdavid-mpongo.pages.dev`. Après déploiement : Google Search Console → Sitemaps → `sitemap.xml`, puis « Inspecter l'URL » sur `/` et `/store-apk`.
